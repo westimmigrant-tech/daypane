@@ -79,9 +79,13 @@ class LanguageTests(unittest.TestCase):
         # 端到端：整张英文图里不许出现中文。以前 '2 次' / '42 条 · 4 会话'
         # 就是因为单位硬编码在格式串里，标签翻了、单位没翻。
         import tempfile
+        from datetime import datetime, timedelta
+        from unittest.mock import patch
+        from zoneinfo import ZoneInfo
+        now = datetime(2026, 11, 13, 23, 0, tzinfo=ZoneInfo('Asia/Shanghai'))
         data = {
             'ok': True,
-            'weather': {'ok': True, 'city': '深圳', 'text': '晴', 'temp': 26, 'high': 29, 'low': 22, 'humidity': 60},
+            'weather': {'ok': True, 'city': '北京', 'text': '晴', 'temp': 26, 'high': 29, 'low': 22, 'humidity': 60},
             'fx': {'ok': True, 'cny': 7.1, 'inr': 83, 'base': 'USD'},
             'stocks': {'ok': True, 'items': [{'sym': 'SPY', 'label': '标普500', 'price': '700',
                                               'currency': 'USD', 'changePct': -1.2, 'spark': {'closes': [1, 2, 3]}}]},
@@ -93,14 +97,21 @@ class LanguageTests(unittest.TestCase):
                 'workbuddy': {'ok': True, 'model': 'hy3',
                               'context': {'used': 100, 'size': 1000, 'percent': 10},
                               'credit': {'used': 1.5, 'count': 3}},
-                'claudecode': {'ok': True, 'used7d': 42, 'sessions7d': 4}
+                'claudecode': {'ok': True, 'used7d': 42, 'sessions7d': 4},
+                'codex': {'ok': True, 'stale': True, 'windows': {
+                    'fiveHour': {'usedPercent': 0, 'resetsAt': int((now + timedelta(hours=2)).timestamp())},
+                    'weekly': {'usedPercent': 100, 'resetsAt': int((now - timedelta(minutes=5)).timestamp())},
+                }},
             }
         }
-        with tempfile.TemporaryDirectory() as tmp:
+        with tempfile.TemporaryDirectory() as tmp, patch.object(r, 'display_now', return_value=now):
             out = Path(tmp) / 'en.png'
             r.render(data, str(out), 'en')
             self.assertTrue(out.exists())
             self.assertEqual(r._cjk_leak(), [], 'English render leaked Chinese onto the canvas')
+            self.assertIn('Beijing', r._DRAWN)
+            self.assertIn('Used 0% · Resets 11/14 01:00 ·stale', r._DRAWN)
+            self.assertIn('Update pending', r._DRAWN)
 
     def test_legacy_quota_snapshot_renders_consistently(self):
         # 云端 runtime-data 分支里可能还是旧格式（没有 context 字段）——

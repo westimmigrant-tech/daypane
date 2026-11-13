@@ -26,6 +26,8 @@ LABELS = {
     'WorkBuddy 用量': 'WorkBuddy usage', 'WorkBuddy 用量 · 电脑离线': 'WorkBuddy usage · PC offline',
     '上下文': 'Context', '已消耗': 'Spent', '本周活动': '7d activity', '·旧': '·stale',
     'Codex 文件': 'Codex files', '今日新闻': 'News',
+    'Codex 5 小时': 'Codex 5h', 'Codex 每周': 'Codex weekly',
+    '已用': 'Used', '重置': 'Resets', '待更新': 'Update pending',
 
     # 单位也要翻译：以前 '2 次' / '42 条 · 4 会话' 是硬编码在格式串里的，
     # 标签翻成英文、单位还留着中文。
@@ -59,7 +61,7 @@ def _record_texts(draw):
 def _cjk_leak():
     """返回本次渲染画上去的、含中日韩统一表意文字的文本片段。"""
     return sorted({t for t in _DRAWN if any('\u4e00' <= ch <= '\u9fff' for ch in t)})
-CITY_EN = {'深圳':'Shenzhen', '伦敦':'London', '洛杉矶':'Los Angeles', '纽约':'New York', '德里':'Delhi'}
+CITY_EN = {'北京':'Beijing', '深圳':'Shenzhen', '伦敦':'London', '洛杉矶':'Los Angeles', '纽约':'New York', '德里':'Delhi'}
 TEAM_EN = dict(zip(
     '响尾蛇 勇士 金莺 红袜 小熊 白袜 红人 守护者 洛基 老虎 太空人 皇家 天使 道奇 马林鱼 酿酒人 双城 大都会 洋基 运动家 费城人 海盗 教士 巨人 水手 红雀 光芒 游骑兵 蓝鸟 国民'.split(),
     'ARI ATL BAL BOS CHC CWS CIN CLE COL DET HOU KC LAA LAD MIA MIL MIN NYM NYY OAK PHI PIT SD SF SEA STL TB TEX TOR WSH'.split()))
@@ -361,13 +363,7 @@ def draw_news(draw, d, y):
     return y + n * (F_BODY + 8)
 
 def draw_ai(draw, d, y):
-    """AI 用量：上下文水位 / 真实消耗 / 活动量。
-
-    注意：WorkBuddy 的 used/size 是「当前会话上下文水位 / 模型窗口」，
-    会在自动压缩时暴跌，绝不是账户余额 —— 所以这里只叫"上下文"，
-    真正的"花掉多少"另起一行用 credit（单调累加，不受压缩影响）。
-    Claude/Codex 只有活动量（cap 是 config 里的手写参考值），不画成剩余额度。
-    """
+    """显示 Codex 账户额度及已有的 WorkBuddy 和 Claude 活动数据。"""
     q = d.get('quotas', {})
     ff = f(F_BODY)
     fs = f(F_SMALL)
@@ -402,20 +398,26 @@ def draw_ai(draw, d, y):
     if cc.get('ok'):
         rows.append((tr('本周活动'), '%s %s · %s %s' % (fnum(cc.get('used7d')), tr('条'), fnum(cc.get('sessions7d')), tr('会话')), None))
     cx = q.get('codex') or {}
-    if cx.get('ok'):
-        rows.append((tr('Codex 文件'), '%s / %s' % (fnum(cx.get('used7d')), fnum(cx.get('cap'))), None))
-    if not rows:
-        rows.append((tr('AI'), tr('不可用'), None))
+    windows = cx.get('windows') or {}
+    now = display_now()
+    for key, name in (('fiveHour', tr('Codex 5 小时')), ('weekly', tr('Codex 每周'))):
+        window = windows.get(key) or {}
+        used, reset_at = window.get('usedPercent'), window.get('resetsAt')
+        if (not cx.get('ok') or type(used) not in (int, float) or not 0 <= used <= 100
+                or type(reset_at) is not int or not 0 < reset_at < 4102444800):
+            rows.append((name, tr('不可用'), None))
+            continue
+        reset = datetime.fromtimestamp(reset_at, now.tzinfo)
+        if reset <= now:
+            rows.append((name, tr('待更新'), None))
+            continue
+        desc = '%s %g%% · %s %s' % (tr('已用'), used, tr('重置'), reset.strftime('%m/%d %H:%M'))
+        if cx.get('stale'):
+            desc += ' ' + tr('·旧')
+        # Reset times need the full width on the Kindle.
+        rows.append((name, desc, None))
 
-    # 标题点名 WorkBuddy：这三行都是它的数据（活动量也读自 WorkBuddy 的 transcript）。
-    # 只有确实装了别的工具（Codex）时才退回泛指的"AI 用量"。
-    # cloud 模式下若本机久未上报，标题直接点明"电脑离线"，不拿旧值假装新鲜
-    offline = not d.get('pcOnline', True)
-    if cx.get('ok'):
-        title = tr('AI 用量 · 电脑离线') if offline else tr('AI 用量')
-    else:
-        title = tr('WorkBuddy 用量 · 电脑离线') if offline else tr('WorkBuddy 用量')
-    y = draw_title(draw, y, title, d.get('quotas'))
+    y = draw_title(draw, y, tr('AI 用量'), q)
 
     for i, (name, val, pct) in enumerate(rows):
         ry = y + i * (F_BODY + bar_h + gap)

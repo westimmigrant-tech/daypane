@@ -52,6 +52,16 @@ Settings → Pages → Source 设为 GitHub Actions。工作流使用 upload-pag
 
 ## 本机额度上报
 
+### Mac 上的 Codex 账户额度
+
+在本仓库根目录运行 `python3 tools/report_codex_quota.py`，用当前已登录的 Codex CLI 查看五小时和每周额度。若 Codex 来自 Mac 应用且不在 PATH，可用 `--codex` 指定可执行文件的绝对路径。
+
+加入 `--publish` 后，采集器把采集时间、两档已用百分比与重置时间写到 `westimmigrant-tech/daypane` 的 `runtime-data` 分支根目录 `quotas.json`。上传使用仅授权这个仓库、拥有 Contents 写权限的细粒度 GitHub 令牌，从 Mac 本机 `~/.config/daypane/github-token` 读取（权限 `0600`）。采集器通过 Codex app-server 的标准输入输出读取额度，发布内容按字段白名单生成。
+
+可用 macOS LaunchAgent 每五分钟运行一次，给 Python、脚本与 Codex 都传绝对路径。采集失败时保留最后成功的快照，看板在额度过期后显示「待更新」。请只用一个上报器写这个文件。旧版 WorkBuddy 上报器会写入自己的快照，两个上报器交替运行会互相覆盖。
+
+### 原有 WorkBuddy 上报器
+
 上报已并入看板服务，不再是第二个后台进程：服务每次出图会顺带推一次带节流的快照，所以上报只发生在看板（也就是 WorkBuddy）真正被使用的时候。若之前在启动目录注册过 `DayPaneQuotaReporter.vbs`，删掉即可——服务自己的开机自启项已经够了。手动补推仍可用 `report_quota.bat`。
 
 更新上报器，并将现有私有配置中的 `GITHUB_BRANCH=main` 改为 `GITHUB_BRANCH=runtime-data`。默认远端路径改为 `quotas.json`。敏感配置每次上报时重新读取 `tools/report_secrets.bat`，改完不需要重启服务。
