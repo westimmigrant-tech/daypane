@@ -25,7 +25,8 @@ LABELS = {
     'AI 用量': 'AI Usage', 'AI 用量 · 电脑离线': 'AI Usage · PC offline',
     'WorkBuddy 用量': 'WorkBuddy usage', 'WorkBuddy 用量 · 电脑离线': 'WorkBuddy usage · PC offline',
     '上下文': 'Context', '已消耗': 'Spent', '本周活动': '7d activity', '·旧': '·stale',
-    'Codex 文件': 'Codex files',
+    'Codex 文件': 'Codex files', '今日新闻': 'News',
+
     # 单位也要翻译：以前 '2 次' / '42 条 · 4 会话' 是硬编码在格式串里的，
     # 标签翻成英文、单位还留着中文。
     '次': 'times', '条': 'msgs', '会话': 'sessions',
@@ -345,14 +346,14 @@ def draw_title(draw, y, text, src=None):
 
 def draw_news(draw, d, y):
     """今日新闻 · AI：中文一句话，按自然标点断句，绝不超页宽"""
-    y = draw_title(draw, y, tr('今日新闻 · AI'), d.get('news'))
+    y = draw_title(draw, y, tr('今日新闻'), d.get('news'))
     items = (d.get('news') or {}).get('items', [])
     ff = f(F_BODY)
     fs = f(F_SMALL)
     if not items:
         draw.text((PAD, y), tr('新闻源暂不可用'), fill=GRAY, font=fs)
         return y + F_SMALL
-    n = min(len(items), 3)
+    n = min(len(items), 4)
     for i in range(n):
         line = '· ' + (items[i].get('title') or '')
         draw.text((PAD, y + i * (F_BODY + 8)), (clip(draw, line, ff, CONTENT_W) if LANG == 'en' else clip_sentence(draw, line, ff, CONTENT_W)),
