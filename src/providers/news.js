@@ -1,123 +1,376 @@
+
 import { cached, fetchJson } from '../cache.js';
 
-// 今日新闻 · AI：全部走中文源，输出"一句话标题"。
-//   1) 量子位 qbitai.com/feed   —— 中文 AI 垂直，AI 密度最高
-//   2) Solidot solidot.org     —— 中文科技，标题干净短（一句话）
-//   3) 少数派 sspai.com/feed    —— 中文补充
-//   4) HN Algolia              —— 最后兜底（英文，仅在前三者全挂时出现）
-// 过滤：白名单 AI 关键词 + 软文黑名单。
-// 超长标题不在这里截断 —— 渲染端会按标点做"自然断句"截断，保证不超页宽。
-// AI 必须带词边界：否则 "Haiku"(含 ai)、"Chain"、"Detail" 都会被误判
-const AI_KW = /\bAI\b|人工智能|大模型|LLM|GPT|Claude|Gemini|智能体|Agent|算力|芯片|英伟达|NVIDIA|Hugging\s?Face|开源模型|机器人|Copilot|OpenAI|深度学习|神经网络|Transformer|推理模型|AGI/i;
+/*
+ * DayPane 综合新闻模块
+ *
+ * 中文版：
+ * 社会、国际、财经、科技，各显示一条。
+ * 优先最近 24 小时，最多回溯 48 小时。
+ *
+ * 英文版：
+ * 保留原有 Hacker News 逻辑，确保英文看板兼容。
+ *
+ * 输出接口保持：
+ * { ok, items, source, error }
+ */
 
-// 量子位/Solidot 里常见的推广、活动、招聘类标题
-const SPAM_KW = /助力|无感迁移|斩获|晋级|国赛|官宣|大会|峰会|直播|报名|招募|招聘|训练营|优惠券|折扣|领衔|生涯|同蚂蚁|国产算力|商汤大装置/;
+const CACHE_MS = 10 * 60 * 1000;
+const MAX_AGE_MS = 48 * 60 * 60 * 1000;
+const PREFERRED_AGE_MS = 24 * 60 * 60 * 1000;
+const FETCH_TIMEOUT_MS = 8000;
 
-function parseRssTitles(xml, max) {
-  const items = xml.match(/<item>[\s\S]*?<\/item>/g) || [];
-  const out = [];
-  for (const it of items) {
-    const m = it.match(/<title>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/title>/);
-    if (m) {
-      const t = m[1].replace(/\s+/g, ' ').trim();
-      if (t) out.push(t);
+// ===== 新闻来源 =====
+
+const NEWS_GROUPS = [
+  {
+    category: '社会',
+    feeds: [
+      {
+        name: '中国新闻网',
+        url: 'https://www.chinanews.com.cn/rss/society.xml'
+      }
+    ]
+  },
+  {
+    category: '国际',
+    feeds: [
+      {
+        name: '中国新闻网',
+        url: 'https://www.chinanews.com.cn/rss/world.xml'
+      }
+    ]
+  },
+  {
+    category: '财经',
+    feeds: [
+      {
+        name: '中国新闻网',
+        url: 'https://www.chinanews.com.cn/rss/finance.xml'
+      },
+      {
+        name: 'FT中文网',
+        url: 'https://www.ftchinese.com/rss/feed'
+      }
+    ]
+  },
+  {
+    category: '科技',
+    feeds: [
+      {
+        name: 'Solidot',
+        url: 'https://www.solidot.org/index.rss'
+      },
+      {
+        name: '量子位',
+        url: 'https://www.qbitai.com/feed'
+      }
+    ]
+  }
+];
+
+// ===== 基础筛选 =====
+
+// 仅过滤明显推广内容，不使用 AI 专属关键词。
+const PROMO_RE =
+  /招聘启事|招聘公告|征稿启事|投稿须知|优惠券|限时优惠|培训招生|广告合作|商务合作|诚邀报名|课程促销/;
+
+// ===== XML 文本处理 =====
+
+function decodeXml(value) {
+  if (!value) return '';
+
+  let text = String(value)
+    .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1')
+    .replace(/<[^>]*>/g, '');
+
+  const entities = {
+    amp: '&',
+    lt: '<',
+    gt: '>',
+    quot: '"',
+    apos: "'",
+    nbsp: ' '
+  };
+
+  text = text.replace(
+    /&(#x[0-9a-f]+|#[0-9]+|[a-z]+);/gi,
+    (match, entity) => {
+      if (entity.startsWith('#')) {
+        const hex = /^#x/i.test(entity);
+        const num = parseInt(
+          entity.slice(hex ? 2 : 1),
+          hex ? 16 : 10
+        );
+
+        if (
+          Number.isInteger(num) &&
+          num >= 0 &&
+          num <= 0x10ffff
+        ) {
+          return String.fromCodePoint(num);
+        }
+
+        return match;
+      }
+
+      return entities[entity.toLowerCase()] ?? match;
     }
-    if (out.length >= max) break;
-  }
-  return out;
+  );
+
+  return text.replace(/\s+/g, ' ').trim();
 }
 
-// 视觉宽度权重：中文/全角算 2，英文数字算 1。
-// 页宽 992px、正文 34px → 全角约 34px/字 → 1 单位 ≈ 17px → 一行上限 ≈ 58 单位。
-// 一句话新闻 = 按权重升序选最短的几条，保证整行放得下、不出现省略号。
-function visualLen(s) {
-  let n = 0;
-  for (const ch of s) {
-    n += /[\u4e00-\u9fff\u3000-\u303f\uff00-\uffef]/.test(ch) ? 2 : 1;
-  }
-  return n;
+function readTag(block, tag) {
+  const pattern = new RegExp(
+    `<${tag}(?:\\s[^>]*)?>([\\s\\S]*?)<\\/${tag}>`,
+    'i'
+  );
+
+  const match = block.match(pattern);
+  return match ? decodeXml(match[1]) : '';
 }
 
-function pick(titles, source, out, max) {
-  for (const t of titles) {
-    if (out.length >= max * 4) break; // 多收一些候选，排序后再截
-    if (!AI_KW.test(t)) continue;
-    if (SPAM_KW.test(t)) continue;
-    if (out.some(o => o.title === t)) continue; // 去重
-    out.push({ title: t, source, len: visualLen(t) });
-  }
-}
+// ===== RSS 解析 =====
 
-async function fetchRss(url, max) {
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 8000);
-  try {
-    const res = await fetch(url, {
-      signal: ctrl.signal,
-      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; kindle-dash/1.0)', Accept: 'application/rss+xml,text/xml' }
+function parseFeed(xml, source, limit = 40) {
+  const blocks =
+    xml.match(/<item\b[^>]*>[\s\S]*?<\/item>/gi) ||
+    xml.match(/<entry\b[^>]*>[\s\S]*?<\/entry>/gi) ||
+    [];
+
+  const items = [];
+
+  for (const block of blocks.slice(0, limit)) {
+    const title = readTag(block, 'title');
+
+    if (!title || title.length < 6) continue;
+    if (PROMO_RE.test(title)) continue;
+
+    const dateText =
+      readTag(block, 'pubDate') ||
+      readTag(block, 'dc:date') ||
+      readTag(block, 'published') ||
+      readTag(block, 'updated');
+
+    const timestamp = Date.parse(dateText);
+
+    const publishedAt = Number.isFinite(timestamp)
+      ? timestamp
+      : null;
+
+    const url = readTag(block, 'link');
+
+    items.push({
+      title,
+      source,
+      url,
+      publishedAt
     });
-    if (!res.ok) throw new Error('http ' + res.status);
-    return parseRssTitles(await res.text(), max);
+  }
+
+  return items;
+}
+
+// ===== 网络获取 =====
+
+async function fetchRss(url, source) {
+  const controller = new AbortController();
+
+  const timer = setTimeout(
+    () => controller.abort(),
+    FETCH_TIMEOUT_MS
+  );
+
+  try {
+    const response = await fetch(url, {
+      signal: controller.signal,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (compatible; DayPane/1.0)',
+        Accept: 'application/rss+xml, application/xml, text/xml'
+      }
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+
+    const xml = await response.text();
+    const items = parseFeed(xml, source);
+
+    if (!items.length) {
+      throw new Error('RSS 中没有有效新闻');
+    }
+
+    return items;
   } finally {
     clearTimeout(timer);
   }
 }
 
+// ===== 去重 =====
+
+function normalizeTitle(title) {
+  return title
+    .toLowerCase()
+    .replace(/[\s\p{P}\p{S}]/gu, '');
+}
+
+// ===== 每类选择一条新闻 =====
+
+async function collectGroup(group, now) {
+  const results = await Promise.all(
+    group.feeds.map(async feed => {
+      try {
+        const items = await fetchRss(feed.url, feed.name);
+
+        return {
+          ok: true,
+          items
+        };
+      } catch (error) {
+        return {
+          ok: false,
+          items: [],
+          error: `${feed.name}: ${error.message}`
+        };
+      }
+    })
+  );
+
+  const allItems = results.flatMap(result => result.items);
+
+  // 无日期或超过 48 小时的报道不当成今日新闻。
+  const recent = allItems.filter(item => {
+    if (item.publishedAt === null) return false;
+
+    const age = now - item.publishedAt;
+
+    return age >= -5 * 60 * 1000 && age <= MAX_AGE_MS;
+  });
+
+  // 去重，并按发布时间降序。
+  const seen = new Set();
+
+  const unique = recent
+    .sort((a, b) => b.publishedAt - a.publishedAt)
+    .filter(item => {
+      const key = normalizeTitle(item.title);
+
+      if (seen.has(key)) return false;
+
+      seen.add(key);
+      return true;
+    });
+
+  // 优先从最近 24 小时选择。
+  const preferred = unique.filter(
+    item => now - item.publishedAt <= PREFERRED_AGE_MS
+  );
+
+  const selected = preferred[0] || unique[0] || null;
+
+  const errors = results
+    .filter(result => !result.ok)
+    .map(result => result.error);
+
+  return {
+    category: group.category,
+    selected,
+    available: results.some(result => result.ok),
+    errors
+  };
+}
+
+// ===== 中文综合新闻 =====
+
+async function getChineseNews() {
+  const now = Date.now();
+
+  const groups = await Promise.all(
+    NEWS_GROUPS.map(group => collectGroup(group, now))
+  );
+
+  const items = [];
+  const errors = [];
+  let realCount = 0;
+
+  for (const group of groups) {
+    if (group.selected) {
+      realCount++;
+
+      items.push({
+        title: `【${group.category}】${group.selected.title}`,
+        category: group.category,
+        source: group.selected.source,
+        url: group.selected.url,
+        publishedAt: group.selected.publishedAt
+      });
+    } else {
+      // 缺少有效报道时明确提示，不虚构新闻。
+      const message = group.available
+        ? '近48小时暂无可用新闻'
+        : '新闻源暂不可用';
+
+      items.push({
+        title: `【${group.category}】${message}`,
+        category: group.category,
+        source: 'DayPane',
+        url: '',
+        publishedAt: null,
+        unavailable: true
+      });
+    }
+
+    errors.push(...group.errors);
+  }
+
+  return {
+    ok: realCount > 0,
+    items,
+    source: '综合 RSS',
+    error: errors.join('; ') || null
+  };
+}
+
+// ===== 英文版：保留原有兼容逻辑 =====
+
+async function getEnglishNews() {
+  const response = await fetchJson(
+    'https://hn.algolia.com/api/v1/search_by_date?query=AI&tags=story&hitsPerPage=12'
+  );
+
+  const items = (response.data?.hits || [])
+    .filter(hit => hit.title)
+    .slice(0, 6)
+    .map(hit => ({
+      title: hit.title,
+      source: 'HN',
+      url: hit.url
+    }));
+
+  return {
+    ok: response.ok && items.length > 0,
+    items,
+    source: 'HN',
+    error: response.error
+  };
+}
+
+// ===== 对外接口：保持 DayPane 原版格式 =====
+
 export function getNews(language = 'zh') {
   if (language === 'en') {
-    return cached('news-en', 10 * 60 * 1000, async () => {
-      const r = await fetchJson('https://hn.algolia.com/api/v1/search_by_date?query=AI&tags=story&hitsPerPage=12');
-      const items = (r.data?.hits || []).filter(h => h.title).slice(0, 6)
-        .map(h => ({ title: h.title, source: 'HN', url: h.url }));
-      return { ok: r.ok && items.length > 0, items, source: 'HN', error: r.error };
-    });
+    return cached(
+      'news-en',
+      CACHE_MS,
+      getEnglishNews
+    );
   }
-  // 缓存 10 分钟：Kindle 30 分钟刷新时必然拿到新数据，同时避免频繁请求源站。
-  return cached('news', 10 * 60 * 1000, async () => {
-    const items = [];
-    const errors = [];
-    const MAX = 6;
 
-    const sources = [
-      ['https://www.qbitai.com/feed', '量子位'],
-      ['https://www.solidot.org/index.rss', 'Solidot'],
-      ['https://sspai.com/feed', '少数派']
-    ];
-
-    // 先抓齐，避免为了两轮筛选重复请求源站
-    const gathered = [];
-    for (const [url, name] of sources) {
-      try {
-        gathered.push({ titles: await fetchRss(url, 20), name });
-      } catch (e) {
-        errors.push(name + ': ' + e.message);
-      }
-    }
-
-    for (const g of gathered) {
-      pick(g.titles, g.name, items, MAX);
-    }
-    // 一句话新闻：短的优先。Array.sort 稳定，同长度保持源顺序
-    items.sort((a, b) => a.len - b.len);
-
-    // 兜底：中文源全挂时才用英文 HN
-    if (!items.length) {
-      const r = await fetchJson(
-        'https://hn.algolia.com/api/v1/search_by_date?query=AI&tags=story&hitsPerPage=6'
-      );
-      if (r.ok && r.data && Array.isArray(r.data.hits)) {
-        for (const h of r.data.hits) {
-          if (h.title) items.push({ title: h.title, source: 'HN' });
-          if (items.length >= 3) break;
-        }
-      } else {
-        errors.push('hn: ' + (r.error || 'fail'));
-      }
-    }
-
-    if (!items.length) {
-      return { ok: false, error: errors.join('; ') || 'no news', items: [] };
-    }
-    return { ok: true, items: items.slice(0, MAX), source: 'qbitai + solidot + sspai' };
-  });
+  return cached(
+    'news',
+    CACHE_MS,
+    getChineseNews
+  );
 }
