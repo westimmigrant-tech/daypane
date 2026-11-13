@@ -1,3 +1,4 @@
+
 {
   "host": "0.0.0.0",
   "port": 8787,
@@ -9,44 +10,24 @@
   "fxBase": "USD",
   "stocks": [
     {
-      "sym": "SPY",
-      "name": "标普500",
-      "mkt": "US"
-    },
-    {
-      "sym": "QQQ",
-      "name": "纳指100",
-      "mkt": "US"
-    },
-    {
-      "sym": "AAPL",
-      "name": "苹果",
-      "mkt": "US"
-    },
-    {
-      "sym": "MU",
-      "name": "美光",
-      "mkt": "US"
-    },
-    {
       "sym": "000001.SS",
       "name": "上证指数",
       "mkt": "A"
     },
     {
-      "sym": "399001.SZ",
-      "name": "深证成指",
+      "sym": "000688.SS",
+      "name": "科创50",
       "mkt": "A"
     },
     {
-      "sym": "600519.SS",
-      "name": "贵州茅台",
-      "mkt": "A"
+      "sym": "SPY",
+      "name": "标普500ETF",
+      "mkt": "US"
     },
     {
-      "sym": "688825.SS",
-      "name": "长鑫科技",
-      "mkt": "A"
+      "sym": "QQQ",
+      "name": "纳指100ETF",
+      "mkt": "US"
     }
   ],
   "clocks": [
@@ -70,6 +51,18 @@
   "claudeCap": 1000,
   "codexCap": 500,
   "display": {
-    "timezone": "Asia/Shanghai"
+    "preset": "daily",
+    "modules": [
+      "news",
+      "ai",
+      "weather",
+      "market",
+      "quote"
+    ],
+    "width": 1072,
+    "height": 1448,
+    "fontScale": 1,
+    "timezone": "Asia/Shanghai",
+    "temperatureUnit": "C"
   }
 }
