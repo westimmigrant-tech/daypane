@@ -1,5 +1,5 @@
 {
-  "ts": 1794637993382,
+  "ts": 1794638602187,
   "quotas": {
     "codex": {
       "ok": true,
@@ -10,7 +10,7 @@
         },
         "weekly": {
           "usedPercent": 42,
-          "resetsAt": 1794974865
+          "resetsAt": 1794974866
         }
       }
     }
