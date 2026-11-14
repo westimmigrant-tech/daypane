@@ -37,9 +37,11 @@ function UI:unschedule(fn) queue[fn] = nil end
 function UI:show() end
 function UI:close() end
 function UI:suspend() end
+function UI:setDirty(widget) self.dirty=widget end
 
 PS = {}
 POWER = {resets=0}
+function POWER:getCapacity() return self.capacity end
 function POWER:resetT1Timeout() self.resets=self.resets+1 end
 function POWER:isCharging() return false end
 function POWER:isCharged() return false end
@@ -102,8 +104,19 @@ end}} end
 package.preload['datastorage'] = function() return {getDataDir=function() return '/tmp' end} end
 package.preload['logger'] = function() return {info=function() end,warn=function() end,err=function() end} end
 package.preload['ui/uimanager'] = function() return UI end
+package.preload['ui/font'] = function() return {getFace=function() return {} end} end
+package.preload['ffi/blitbuffer'] = function() return {COLOR_WHITE='white'} end
+package.preload['ui/widget/textwidget'] = function() return base:new{
+    setText=function(self, text) self.text=text end,
+    getSize=function(self) return {w=120,h=28} end,
+    paintTo=function(self, bb, x, y) bb.label={text=self.text,x=x,y=y} end,
+    free=function() end
+} end
+package.preload['ui/widget/container/inputcontainer'] = function() return base:new{
+    paintTo=function(_, bb) bb.image=true end
+} end
 for _, name in ipairs({'ui/widget/container/widgetcontainer','ui/widget/infomessage',
-'ui/widget/inputdialog','ui/widget/container/inputcontainer','ui/widget/imagewidget',
+'ui/widget/inputdialog','ui/widget/imagewidget',
 'ui/geometry','ui/gesturerange','luasettings','libs/libkoreader-lfs'}) do
     package.preload[name]=function() return base end
 end

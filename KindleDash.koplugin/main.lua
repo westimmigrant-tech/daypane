@@ -1,7 +1,7 @@
 -- DayPane · Kindle 端显示插件（单一实现 v0.3.0）
 --
 -- 把渲染好的整屏 PNG（1072x1448，1-bit 抖动 / ~30KB）满屏显示。
--- 排版/字体/灰度/抖动全部在渲染端完成，Kindle 只负责取图与显示。
+-- 看板图片在服务端生成，Kindle 在本机叠加电量。
 --
 -- 取图三级降级链：
 --   1) 局域网 PC（/api/display 清单 + /api/image）—— 数据最新，电脑关机时连不上
@@ -22,6 +22,9 @@ local InfoMessage = require("ui/widget/infomessage")
 local InputDialog = require("ui/widget/inputdialog")
 local InputContainer = require("ui/widget/container/inputcontainer")
 local ImageWidget = require("ui/widget/imagewidget")
+local TextWidget = require("ui/widget/textwidget")
+local Font = require("ui/font")
+local Blitbuffer = require("ffi/blitbuffer")
 local Geom = require("ui/geometry")
 local Device = require("device")
 local Screen = Device.screen
@@ -128,6 +131,7 @@ local EN = {
     ["设置云端图地址"] = "Set cloud image URL",
     ["切换自动刷新 (整点/半点)"] = "Toggle auto refresh (:00 / :30)",
     ["设备状态"] = "Device status",
+    ["电量"] = "Battery",
     ["刷新间隔"] = "Refresh interval",
     ["刷新间隔（分钟，5–1440）"] = "Refresh interval (minutes, 5–1440)",
     ["设置：图片或清单地址"] = "Setup: image or manifest URL",
@@ -287,6 +291,13 @@ end
 
 -- ---------------- 健康日志（诊断用，写到缓存目录） ----------------
 
+function KindleDash:batteryCapacity()
+    local ok, capacity = pcall(function() return Device:getPowerDevice():getCapacity() end)
+    if ok and type(capacity) == "number" and capacity >= 0 and capacity <= 100 then
+        return math.floor(capacity + 0.5)
+    end
+end
+
 function KindleDash:record(event, detail)
     local ok, err = pcall(function()
         self:ensureCacheDir()
@@ -294,12 +305,10 @@ function KindleDash:record(event, detail)
         if not dir then return end
         local path = dir .. "/kindledash-health.json"
         local history = self._health_history or {}
-        local power = Device:getPowerDevice()
-        local ok_cap, battery = pcall(function() return power:getCapacity() end)
         history[#history + 1] = {
             at = os.time(), event = event,
             detail = tostring(detail or ""):sub(1, 240),
-            battery = ok_cap and battery or nil,
+            battery = self:batteryCapacity(),
         }
         while #history > 192 do table.remove(history, 1) end
         self._health_history = history
@@ -618,6 +627,27 @@ function KindleDash:buildScreen(img_path, w, h)
     }
     local container = InputContainer:new{ dimen = Geom:new{ w = w, h = h } }
     container[1] = img
+    local battery = TextWidget:new{ text = "", face = Font:getFace("cfont"), bold = true }
+    local margin = math.floor(w * 0.037)
+    function container:updateBattery()
+        local level = dash:batteryCapacity()
+        local label = level and string.format("%s %d%%", dash:tr("电量"), level) or ""
+        if battery.text == label then return end
+        battery:setText(label)
+        if dash.dash_widget == self then UIManager:setDirty(self, "ui", self.dimen) end
+    end
+    function container:paintTo(bb, x, y)
+        InputContainer.paintTo(self, bb, x, y)
+        if battery.text == "" or self.skip_paint then return end
+        local size = battery:getSize()
+        local left, top = x + w - margin - size.w, y + h - margin - size.h
+        bb:paintRect(left - 6, top, size.w + 12, size.h, Blitbuffer.COLOR_WHITE)
+        battery:paintTo(bb, left, top)
+    end
+    function container:onCloseWidget()
+        battery:free()
+    end
+    container:updateBattery()
     -- 吃手势，防止 KOReader 的翻页/退出穿透到看板上。
     container.ges_events = {
         TapScroll = { GestureRange:new{ ges = "tap", range = function() return container.dimen end } },
@@ -846,6 +876,7 @@ function KindleDash:requestRefresh(silent, manual)
         -- 进行中的那次会在 settle/proceed 里发现号不对而自行退出。
         if not manual then return false end
     end
+    if self.dash_widget and self.dash_widget.updateBattery then self.dash_widget:updateBattery() end
     self._busy = true
     self._last_attempt = os.time()
     local generation = (self._generation or 0) + 1
@@ -960,6 +991,7 @@ function KindleDash:onResume()
     self._suspended = false
     self._busy = false
     self._generation = (self._generation or 0) + 1
+    if self.dash_widget and self.dash_widget.updateBattery then self.dash_widget:updateBattery() end
     if self._resume_tick then UIManager:unschedule(self._resume_tick) end
     if self._network_deadline then
         UIManager:unschedule(self._network_deadline)

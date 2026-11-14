@@ -12,6 +12,46 @@ lua.execute("SHA=dofile(PLUGIN_DIR..'sha256.lua'); Plugin.sha256=SHA")
 
 
 class RuntimeTests(unittest.TestCase):
+    def test_battery_overlay_updates_even_without_a_new_image(self):
+        lua.execute('''
+        local d=Plugin:new{language='zh'}
+        d.option=function(_, key, default) return default end
+        d.record=function() end
+        d.cacheImg=function() return '/tmp/daypane-cache.png' end
+        d.fileExists=function() return true end
+        d.fetchScreen=function() return nil, 'offline' end
+        POWER.capacity=76
+        assert(not d:refreshDashboard(true,true))
+        local widget=d.dash_widget
+        local bb={paintRect=function(self,x,y,w,h,color)
+            assert(self.image and x>=0 and y>=0 and x+w<=1072 and y+h<=1448 and color=='white')
+        end}
+        widget:paintTo(bb,0,0)
+        assert(bb.label.text=='电量 76%' and bb.label.x>900 and bb.label.y>1350)
+
+        d.fetchScreen=function() return true,nil,'Cloud',true end
+        d.writeTs=function() end
+        d.language='en'
+        POWER.capacity=75
+        assert(d:requestRefresh(true,true))
+        assert(d.dash_widget==widget and UI.dirty==widget)
+        widget:paintTo(bb,0,0)
+        assert(bb.label.text=='Battery 75%')
+
+        POWER.capacity=0
+        d:onResume()
+        widget:paintTo(bb,0,0)
+        assert(bb.label.text=='Battery 0%')
+        POWER.capacity=101
+        widget:updateBattery()
+        bb.label=nil
+        widget:paintTo(bb,0,0)
+        assert(bb.label==nil and bb.image)
+        widget:onCloseWidget()
+        d:onCloseWidget()
+        POWER.capacity=nil
+        ''')
+
     def test_sha256_known_vectors(self):
         for data in [b'',b'abc',b'a'*1000,bytes(range(256))]:
             self.assertEqual(lua.globals().SHA(data), hashlib.sha256(data).hexdigest())
