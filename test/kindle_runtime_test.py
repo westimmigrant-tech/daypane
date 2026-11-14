@@ -21,7 +21,7 @@ class RuntimeTests(unittest.TestCase):
         d.fileExists=function() return true end
         d.fetchScreen=function() return nil, 'offline' end
         POWER.capacity=76
-        assert(not d:refreshDashboard(true,true))
+        assert(not d:refreshDashboard(true,true,nil,'offline'))
         local widget=d.dash_widget
         local bb={paintRect=function(self,x,y,w,h,color)
             assert(self.image and x>=0 and y>=0 and x+w<=1072 and y+h<=1448 and color=='white')
@@ -51,6 +51,73 @@ class RuntimeTests(unittest.TestCase):
         d:onCloseWidget()
         POWER.capacity=nil
         ''')
+
+    def test_stalled_download_times_out_and_can_be_cancelled(self):
+        lua.execute('''
+        local d=Plugin:new{language='en',startFetch=REAL_START_FETCH}
+        d.cacheDir=function() return '/tmp' end
+        local done, killed
+        WORKER.runInSubProcess=function() return 7 end
+        WORKER.isSubProcessDone=function() return killed end
+        WORKER.terminateSubProcess=function(pid) assert(pid==7); killed=true end
+        local function testTimeout(data, err)
+            assert(data==nil and err=='Image download timed out')
+            done=true
+        end
+        local old=UI.scheduleIn
+        local poll
+        UI.scheduleIn=function(self, delay, fn) assert(delay==0.25); poll=fn; old(self,delay,fn) end
+        CLOCK=0
+        d:startFetch(testTimeout)
+        assert(poll and not done)
+        CLOCK=26
+        poll()
+        assert(done and killed and not d._cancel_fetch)
+        killed=false
+        d:startFetch(function() error('cancelled download completed') end)
+        d:releaseNetwork()
+        assert(killed and not d._cancel_fetch and UI.queue[poll]==nil)
+        UI.scheduleIn=old
+        ''')
+
+    def test_completed_download_passes_image_and_metadata_to_ui(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            lua.globals().FETCH_DIR = tmp
+            lua.execute('''
+            local d=Plugin:new{language='en',startFetch=REAL_START_FETCH}
+            d.cacheDir=function() return FETCH_DIR end
+            d.fetchScreen=function(self)
+                self._candidate_meta={generatedAt=123}
+                return 'image bytes',nil,'Cloud',false
+            end
+            local j=require('json')
+            local encode,decode=j.encode,j.decode
+            j.encode=function(result)
+                assert(result.ok and result.source=='Cloud' and result.meta.generatedAt==123)
+                return '{}'
+            end
+            j.decode=function(raw)
+                assert(raw=='{}')
+                return {ok=true,source='Cloud',meta={generatedAt=123}}
+            end
+            WORKER.runInSubProcess=function(fn) fn(8); return 8 end
+            WORKER.isSubProcessDone=function() return true end
+            local done
+            d:startFetch(function(bytes,err,source)
+                assert(bytes=='image bytes' and not err and source=='Cloud')
+                assert(d._candidate_meta.generatedAt==123 and not d._cancel_fetch)
+                done=true
+            end)
+            assert(not done)
+            local pending=d._cancel_fetch
+            -- Only the new download poll is queued at 250 ms.
+            for fn,delay in pairs(UI.queue) do
+                if delay==0.25 then UI.queue[fn]=nil;fn() end
+            end
+            assert(pending and done)
+            j.encode,j.decode=encode,decode
+            ''')
+            self.assertFalse(list(Path(tmp).iterdir()))
 
     def test_sha256_known_vectors(self):
         for data in [b'',b'abc',b'a'*1000,bytes(range(256))]:

@@ -38,6 +38,13 @@ function UI:show() end
 function UI:close() end
 function UI:suspend() end
 function UI:setDirty(widget) self.dirty=widget end
+CLOCK = 0
+package.preload['ui/time'] = function() return {
+    now=function() return CLOCK end, s=function(n) return n end
+} end
+WORKER = {}
+package.preload['ffi/util'] = function() return WORKER end
+package.preload['ssl.https'] = function() return {TIMEOUT=60} end
 
 PS = {}
 POWER = {resets=0}
@@ -125,6 +132,12 @@ end
 PLUGIN_DIR = Path(__file__).parents[1] / 'KindleDash.koplugin'
 lua.globals().PLUGIN_DIR = str(PLUGIN_DIR) + '/'
 lua.globals().Plugin = lua.execute((PLUGIN_DIR / 'main.lua').read_text())
+lua.execute('''
+REAL_START_FETCH=Plugin.startFetch
+function Plugin:startFetch(done)
+    done(self:fetchScreen())
+end
+''')
 
 lua.execute('''
 local d = Plugin:new{auto_on=true}

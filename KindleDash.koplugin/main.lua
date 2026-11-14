@@ -25,6 +25,8 @@ local ImageWidget = require("ui/widget/imagewidget")
 local TextWidget = require("ui/widget/textwidget")
 local Font = require("ui/font")
 local Blitbuffer = require("ffi/blitbuffer")
+local ffiutil = require("ffi/util")
+local time = require("ui/time")
 local Geom = require("ui/geometry")
 local Device = require("device")
 local Screen = Device.screen
@@ -37,9 +39,6 @@ local RenderImage = require("ui/renderimage")
 local lfs = require("libs/libkoreader-lfs")
 local logger = require("logger")
 local JSON = require("json")
-
--- 网络请求超时：电脑关机时不要让用户等太久，8 秒无响应就切换下一级。
-http.TIMEOUT = 8
 
 local VERSION = "0.3.3"
 local REFRESH_SEC = 30 * 60
@@ -425,6 +424,7 @@ end
 function KindleDash:armAutoRefresh(delay)
     if self._auto_timer then UIManager:unschedule(self._auto_timer) end
     self:cancelRtcWake()
+    self._next_attempt = nil
     if not self.auto_on or not self.dash_widget then return end
     local function tick()
         if not self.auto_on then return end
@@ -435,7 +435,7 @@ function KindleDash:armAutoRefresh(delay)
     end
     self._auto_timer = tick
     local first = delay or self:nextDelay()
-    if first < 30 then first = first + self:intervalSec() end
+    self._next_attempt = os.time() + first
     UIManager:scheduleIn(first, tick)
     self:scheduleRtcWake()
 end
@@ -508,7 +508,13 @@ function KindleDash:request(url, limit)
         if not ca then return nil, "CA bundle missing" end
         req.cafile, req.verify, req.protocol = ca, "peer", "tlsv1_2"
     end
+    local https = url:match("^https://") and require("ssl.https")
+    local old_http, old_https = http.TIMEOUT, https and https.TIMEOUT
+    http.TIMEOUT = 8
+    if https then https.TIMEOUT = 8 end
     local ok, result, status = pcall(http.request, req)
+    http.TIMEOUT = old_http
+    if https then https.TIMEOUT = old_https end
     if not ok or not result or tonumber(status) ~= 200 then
         return nil, "HTTP/network: " .. tostring(status or result)
     end
@@ -759,6 +765,7 @@ end
 -- 这里只管网络，不碰 _busy / 重试——那些由调用方按 generation 决定，
 -- 否则被抢占的旧刷新会把新刷新的状态一起清掉。
 function KindleDash:releaseNetwork()
+    if self._cancel_fetch then self._cancel_fetch() end
     if self._network_release then self._network_release() end
 end
 
@@ -809,9 +816,63 @@ function KindleDash:prepareNetwork(on_ready, on_fail)
     return false
 end
 
-function KindleDash:refreshDashboard(silent, manual)
+-- DNS and HTTPS may block inside LuaSocket. Keep them out of the UI process.
+function KindleDash:startFetch(done)
+    local prefix = self:cacheDir() .. "/.daypane-fetch-"
+    local language = self.language
+    local pid = ffiutil.runInSubProcess(function(child)
+        self._candidate_meta = nil
+        local data, err, source, unchanged = self:fetchScreen()
+        local header = JSON.encode({ error = err, source = source, unchanged = unchanged,
+                                     meta = self._candidate_meta, ok = data ~= nil })
+        local f = assert(io.open(prefix .. child, "wb"))
+        f:write(header, "\n", data or "")
+        f:close()
+    end)
+    if not pid then return done(nil, "Unable to start image download") end
+    local path = prefix .. pid
+    local deadline = time.now() + time.s(25)
+    local poll
+    local function reap()
+        if ffiutil.isSubProcessDone(pid) then
+            os.remove(path)
+        else
+            UIManager:scheduleIn(0.2, reap)
+        end
+    end
+    local function cancel()
+        self._cancel_fetch = nil
+        UIManager:unschedule(poll)
+        if not ffiutil.isSubProcessDone(pid) then ffiutil.terminateSubProcess(pid) end
+        reap()
+    end
+    poll = function()
+        if ffiutil.isSubProcessDone(pid) then
+            self._cancel_fetch = nil
+            local f = io.open(path, "rb")
+            if not f then return done(nil, "Image download returned no result") end
+            local raw = f:read("*l")
+            local data = f:read(MAX_IMAGE + 1)
+            f:close()
+            os.remove(path)
+            if self.language ~= language then return done(nil, "Image language changed") end
+            local ok, result = pcall(JSON.decode, raw or "")
+            if not ok or type(result) ~= "table" then return done(nil, "Invalid image download result") end
+            self._candidate_meta = result.meta
+            return done(result.ok and data or nil, result.error, result.source, result.unchanged)
+        end
+        if time.now() >= deadline then
+            cancel()
+            return done(nil, "Image download timed out")
+        end
+        UIManager:scheduleIn(0.25, poll)
+    end
+    self._cancel_fetch = cancel
+    UIManager:scheduleIn(0.25, poll)
+end
+
+function KindleDash:refreshDashboard(silent, manual, data, err, source, unchanged)
     if self._suspended then return false end
-    local data, err, source, unchanged = self:fetchScreen()
     self._fetch_error = err
     local cacheImg = self:cacheImg()
     local showing = (self.dash_widget ~= nil)   -- 看板此刻是否正显示在屏幕上
@@ -881,6 +942,7 @@ function KindleDash:requestRefresh(silent, manual)
     self._last_attempt = os.time()
     local generation = (self._generation or 0) + 1
     self._generation = generation
+    self:record("refresh_started")
     local function settle(ok, err)
         if generation ~= self._generation then return end
         self._busy = false
@@ -892,8 +954,12 @@ function KindleDash:requestRefresh(silent, manual)
     end
     local function proceed()
         if generation ~= self._generation then return end
-        local ok, result = pcall(self.refreshDashboard, self, silent, manual)
-        settle(ok and result, ok and self._fetch_error or result)
+        local started, err = pcall(self.startFetch, self, function(data, failure, source, unchanged)
+            if generation ~= self._generation then return end
+            local ok, result = pcall(self.refreshDashboard, self, silent, manual, data, failure, source, unchanged)
+            settle(ok and result, ok and self._fetch_error or result)
+        end)
+        if not started then settle(false, err) end
     end
     local function fail_network()
         if generation ~= self._generation then return end
