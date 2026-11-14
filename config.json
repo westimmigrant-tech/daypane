@@ -29,6 +29,20 @@
       "sym": "QQQ",
       "name": "纳指100ETF",
       "mkt": "US"
+    },
+    {
+      "sym": "518850.SS",
+      "name": "黄金ETF",
+      "nameEn": "Gold ETF",
+      "priceDecimals": 3,
+      "mkt": "A"
+    },
+    {
+      "sym": "511130.SS",
+      "name": "30年国债ETF",
+      "nameEn": "30Y Bond ETF",
+      "priceDecimals": 3,
+      "mkt": "A"
     }
   ],
   "clocks": [

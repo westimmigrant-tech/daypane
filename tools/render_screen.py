@@ -423,7 +423,7 @@ def draw_ai(draw, d, y):
         ry = y + i * (F_BODY + bar_h + gap)
         draw.text((PAD, ry), name, fill=BLACK, font=ff)
         right = SCREEN_W - PAD if pct is None else SCREEN_W - PAD - bar_w - 20
-        draw.text((right - tw(draw, val, fs), ry + 4), val, fill=GRAY, font=fs)
+        draw.text((right - tw(draw, val, fs), ry + 4), val, fill=BLACK, font=fs)
         if pct is None:
             continue
         bx = SCREEN_W - PAD - bar_w
@@ -463,7 +463,9 @@ def draw_market(draw, d, y):
             x = PAD + j * colw
             if s.get('ok'):
                 sign = '+' if (s.get('changePct') or 0) >= 0 else '-'
-                cell = '%s %s %s%s%%' % (s.get('label') or s.get('sym'), fnum(s.get('price')), sign, fmt_pct(s.get('changePct')))
+                price, decimals = s.get('price'), s.get('priceDecimals')
+                price_text = f'{price:.{decimals}f}' if type(decimals) is int and 0 <= decimals <= 4 and isinstance(price, (int, float)) else fnum(price)
+                cell = '%s %s %s%s%%' % (s.get('label') or s.get('sym'), price_text, sign, fmt_pct(s.get('changePct')))
             else:
                 cell = '%s --' % (s.get('label') or s.get('sym'))
             draw.text((x, ry), clip(draw, cell, ff, colw - 8), fill=BLACK, font=ff)

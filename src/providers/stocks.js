@@ -174,6 +174,10 @@ async function buildStocks() {
       label,
       mkt: s.mkt
     };
+    if (s.nameEn) item.labelEn = s.nameEn;
+    if (Number.isInteger(s.priceDecimals) && s.priceDecimals >= 0 && s.priceDecimals <= 4) {
+      item.priceDecimals = s.priceDecimals;
+    }
     const spark = sparks[s.sym];
     if (spark) item.spark = spark; // { dates: string[], closes: number[] }
     return item;
