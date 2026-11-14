@@ -937,6 +937,10 @@ function KindleDash:requestRefresh(silent, manual)
         -- 进行中的那次会在 settle/proceed 里发现号不对而自行退出。
         if not manual then return false end
     end
+    if manual and not self.dash_widget then
+        local cached = self:cacheImg()
+        if self:fileExists(cached) then self:showDashboard(cached, true) end
+    end
     if self.dash_widget and self.dash_widget.updateBattery then self.dash_widget:updateBattery() end
     self._busy = true
     self._last_attempt = os.time()

@@ -12,6 +12,29 @@ lua.execute("SHA=dofile(PLUGIN_DIR..'sha256.lua'); Plugin.sha256=SHA")
 
 
 class RuntimeTests(unittest.TestCase):
+    def test_open_shows_cache_before_background_download_and_can_exit(self):
+        lua.execute('''
+        local d=Plugin:new{language='en',auto_on=true}
+        d.option=function(_, key, default) return default end
+        d.record=function() end
+        d.cacheImg=function() return '/tmp/daypane-cache.png' end
+        d.fileExists=function() return true end
+        d.prepareNetwork=function() return true end
+        local finish,cancelled,applied
+        d.startFetch=function(self, done)
+            assert(self.dash_widget ~= nil)
+            finish=done
+            self._cancel_fetch=function() cancelled=true; self._cancel_fetch=nil end
+        end
+        d.refreshDashboard=function() applied=true;return true end
+        assert(d:requestRefresh(false,true))
+        assert(d.dash_widget and d._busy and not applied)
+        d.dash_widget:onTapScroll(nil,{pos={y=0}})
+        assert(cancelled and not d._busy and not d.dash_widget)
+        finish('late image',nil,'Cloud',false)
+        assert(not applied and not d.dash_widget)
+        ''')
+
     def test_battery_overlay_updates_even_without_a_new_image(self):
         lua.execute('''
         local d=Plugin:new{language='zh'}
