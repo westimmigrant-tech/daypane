@@ -25,6 +25,9 @@ def load_layout(path='config.json'):
     scale = cfg.get('fontScale', 1)
     if not isinstance(scale, (float, int)) or not 0.75 <= scale <= 1.5:
         raise ValueError('fontScale must be between 0.75 and 1.5')
+    news_limit = cfg.get('newsLimit', 4)
+    if type(news_limit) is not int or not 1 <= news_limit <= 8:
+        raise ValueError('newsLimit must be an integer from 1 to 8')
     timezone = cfg.get('timezone')
     if timezone:
         ZoneInfo(timezone)
@@ -32,4 +35,4 @@ def load_layout(path='config.json'):
     if unit not in ('C', 'F'):
         raise ValueError('temperatureUnit must be C or F')
     return dict(modules=modules, width=width, height=height, fontScale=scale,
-                timezone=timezone, temperatureUnit=unit, preset=preset)
+                timezone=timezone, temperatureUnit=unit, preset=preset, newsLimit=news_limit)

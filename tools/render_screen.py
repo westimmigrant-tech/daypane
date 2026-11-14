@@ -355,7 +355,7 @@ def draw_news(draw, d, y):
     if not items:
         draw.text((PAD, y), tr('新闻源暂不可用'), fill=GRAY, font=fs)
         return y + F_SMALL
-    n = min(len(items), 4)
+    n = min(len(items), 4 if LANG == 'en' else LAYOUT['newsLimit'])
     for i in range(n):
         line = '· ' + (items[i].get('title') or '')
         draw.text((PAD, y + i * (F_BODY + 8)), (clip(draw, line, ff, CONTENT_W) if LANG == 'en' else clip_sentence(draw, line, ff, CONTENT_W)),

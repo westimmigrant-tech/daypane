@@ -5,7 +5,7 @@ import { cached, fetchJson } from '../cache.js';
  * DayPane 综合新闻模块
  *
  * 中文版：
- * 社会、国际、财经、科技，各显示一条。
+ * 社会、国际、财经、科技，各最多两条，先覆盖四个栏目。
  * 优先最近 24 小时，最多回溯 48 小时。
  *
  * 英文版：
@@ -17,7 +17,6 @@ import { cached, fetchJson } from '../cache.js';
 
 const CACHE_MS = 10 * 60 * 1000;
 const MAX_AGE_MS = 48 * 60 * 60 * 1000;
-const PREFERRED_AGE_MS = 24 * 60 * 60 * 1000;
 const FETCH_TIMEOUT_MS = 8000;
 
 // ===== 新闻来源 =====
@@ -216,7 +215,7 @@ function normalizeTitle(title) {
     .replace(/[\s\p{P}\p{S}]/gu, '');
 }
 
-// ===== 每类选择一条新闻 =====
+// ===== 每类收集候选新闻 =====
 
 async function collectGroup(group, now) {
   const results = await Promise.all(
@@ -249,34 +248,13 @@ async function collectGroup(group, now) {
     return age >= -5 * 60 * 1000 && age <= MAX_AGE_MS;
   });
 
-  // 去重，并按发布时间降序。
-  const seen = new Set();
-
-  const unique = recent
-    .sort((a, b) => b.publishedAt - a.publishedAt)
-    .filter(item => {
-      const key = normalizeTitle(item.title);
-
-      if (seen.has(key)) return false;
-
-      seen.add(key);
-      return true;
-    });
-
-  // 优先从最近 24 小时选择。
-  const preferred = unique.filter(
-    item => now - item.publishedAt <= PREFERRED_AGE_MS
-  );
-
-  const selected = preferred[0] || unique[0] || null;
-
   const errors = results
     .filter(result => !result.ok)
     .map(result => result.error);
 
   return {
     category: group.category,
-    selected,
+    candidates: recent.sort((a, b) => b.publishedAt - a.publishedAt),
     available: results.some(result => result.ok),
     errors
   };
@@ -292,44 +270,33 @@ async function getChineseNews() {
   );
 
   const items = [];
-  const errors = [];
-  let realCount = 0;
+  const seen = new Set();
 
-  for (const group of groups) {
-    if (group.selected) {
-      realCount++;
-
-      items.push({
-        title: `【${group.category}】${group.selected.title}`,
-        category: group.category,
-        source: group.selected.source,
-        url: group.selected.url,
-        publishedAt: group.selected.publishedAt
-      });
-    } else {
-      // 缺少有效报道时明确提示，不虚构新闻。
-      const message = group.available
-        ? '近48小时暂无可用新闻'
-        : '新闻源暂不可用';
-
-      items.push({
-        title: `【${group.category}】${message}`,
-        category: group.category,
-        source: 'DayPane',
-        url: '',
-        publishedAt: null,
-        unavailable: true
-      });
+  for (let round = 0; round < 2; round++) {
+    for (const group of groups) {
+      const selected = group.candidates.find(item => !seen.has(normalizeTitle(item.title)));
+      if (selected) {
+        seen.add(normalizeTitle(selected.title));
+        items.push({ ...selected, title: `【${group.category}】${selected.title}`, category: group.category });
+      } else if (round === 0) {
+        const message = group.available ? '近48小时暂无可用新闻' : '新闻源暂不可用';
+        items.push({
+          title: `【${group.category}】${message}`,
+          category: group.category,
+          source: 'DayPane',
+          url: '',
+          publishedAt: null,
+          unavailable: true
+        });
+      }
     }
-
-    errors.push(...group.errors);
   }
 
   return {
-    ok: realCount > 0,
+    ok: seen.size > 0,
     items,
     source: '综合 RSS',
-    error: errors.join('; ') || null
+    error: groups.flatMap(group => group.errors).join('; ') || null
   };
 }
 
