@@ -163,20 +163,20 @@ d:toggleAutoRefresh()
 assert(UI.queue[old] == nil and #WAKEUP.tasks == 0)
 d:toggleAutoRefresh()
 assert(UI.queue[old] == nil and UI.queue[d._auto_timer] and #WAKEUP.tasks == 0)
--- Showing the dashboard engages hold-awake: AutoSuspend paused and the firmware
--- screensaver blocked via lipc (the two channels the keepalive plugin uses).
+-- AutoSuspend must see the KeepAlive flag whenever DayPane blocks firmware sleep.
 assert(d._holding == false and PS.pause_auto_suspend == nil and #EXEC.commands == 0)
 assert(d:showDashboard('/tmp/hold.png', false) == true)
-assert(d._holding == true and PS.pause_auto_suspend == true)
+assert(d._holding == true and PS.pause_auto_suspend == true and PS.keepalive == true)
 assert(EXEC.commands[#EXEC.commands] == 'lipc-set-prop com.lab126.powerd preventScreenSaver 1')
 -- A manual power-key suspend must release the hold (otherwise the firmware
 -- would refuse to sleep); resume re-engages it because the dashboard is still up.
 d:onSuspend()
-assert(d._holding == false and PS.pause_auto_suspend == false)
+assert(d._holding == false and PS.pause_auto_suspend == nil and PS.keepalive == nil)
+assert(EXEC.commands[#EXEC.commands] == 'lipc-set-prop com.lab126.powerd preventScreenSaver 0')
 d:onResume()
 local retry = d._resume_tick
 UI.queue[retry]=nil; retry()
-assert(d._holding == true and PS.pause_auto_suspend == true and refreshes == 1)
+assert(d._holding == true and PS.pause_auto_suspend == true and PS.keepalive == true and refreshes == 1)
 UI.queue[retry]=nil; retry()
 assert(refreshes == 2 and UI.queue[retry]==nil)
 -- Suspending mid-refresh must release the re-entrancy lock. If it stayed set,
@@ -202,9 +202,15 @@ assert(d:showDashboard('/tmp/never.png', false) == false and d.dash_widget == be
 -- Closing the dashboard releases the hold and stops the UI timer.
 d.dash_widget = nil
 d:armAutoRefresh()
-assert(UI.queue[d._auto_timer] == nil and d._holding == false and PS.pause_auto_suspend == false)
+assert(UI.queue[d._auto_timer] == nil and d._holding == false and PS.pause_auto_suspend == nil)
 d:onCloseWidget()
 assert(UI.queue[d._auto_timer]==nil and UI.queue[d._resume_tick]==nil)
+local commands = #EXEC.commands
+PS.keepalive, PS.pause_auto_suspend = true, false
+d:holdScreen(true)
+d:holdScreen(false)
+assert(PS.keepalive == true and PS.pause_auto_suspend == false and #EXEC.commands == commands)
+PS.keepalive, PS.pause_auto_suspend = nil, nil
 -- RTC wake chain (opt-in): armed while the dashboard is up, re-armed only via
 -- the deferred tick because WakeupMgr:wakeupAction() calls removeTask(1) right
 -- after the callback returns, which would delete a synchronously queued task.

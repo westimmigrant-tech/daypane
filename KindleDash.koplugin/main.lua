@@ -40,7 +40,7 @@ local lfs = require("libs/libkoreader-lfs")
 local logger = require("logger")
 local JSON = require("json")
 
-local VERSION = "0.3.3"
+local VERSION = "0.3.4"
 local REFRESH_SEC = 30 * 60
 local MAX_IMAGE = 4 * 1024 * 1024
 local DEFAULT_HOST = ""
@@ -997,18 +997,35 @@ local function pluginShare()
     return PluginShare
 end
 
--- 看板显示期间防止设备休眠（与 keepalive 插件同款双通道，真机已验证）：
---   1) PluginShare.pause_auto_suspend：停掉 AutoSuspend 插件的挂起倒计时；
---   2) lipc preventScreenSaver：挡住固件层的屏保/休眠。
--- 为什么不用 RTC 定时唤醒：PW3 实测闹钟会响、设备会醒，但唤醒滞后 ~90-100s，
--- 超过 WakeupMgr:wakeupAction(90) 的邻近窗口 → 任务被拒收、刷新不执行，
--- 且每次无谓唤醒还耗电。常亮 + UI 定时器在这台设备上是唯一可靠路径。
 function KindleDash:holdScreen(on)
-    if self._holding == on then return end
-    self._holding = on
+    if (self._holding or false) == on then return end
     local ps = pluginShare()
-    if ps then ps.pause_auto_suspend = on end
-    pcall(os.execute, "lipc-set-prop com.lab126.powerd preventScreenSaver " .. (on and "1" or "0"))
+    local kindle = Device:isKindle()
+    if on then
+        self._hold_previous = {
+            pause_auto_suspend = ps and ps.pause_auto_suspend,
+            keepalive = ps and ps.keepalive,
+        }
+        if ps then
+            ps.pause_auto_suspend = true
+            -- AutoSuspend can spin on an overdue Kindle timer while powerd blocks sleep.
+            if kindle then ps.keepalive = true end
+        end
+        if kindle and not self._hold_previous.keepalive then
+            pcall(os.execute, "lipc-set-prop com.lab126.powerd preventScreenSaver 1")
+        end
+    else
+        local previous = self._hold_previous
+        if kindle and not previous.keepalive then
+            pcall(os.execute, "lipc-set-prop com.lab126.powerd preventScreenSaver 0")
+        end
+        if ps then
+            ps.pause_auto_suspend = previous.pause_auto_suspend
+            if kindle then ps.keepalive = previous.keepalive end
+        end
+        self._hold_previous = nil
+    end
+    self._holding = on
     self:record(on and "hold_screen_on" or "hold_screen_off")
 end
 
