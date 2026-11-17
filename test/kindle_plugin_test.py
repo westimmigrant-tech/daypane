@@ -283,3 +283,25 @@ saved={}
 print('PASS: legacy built-in URL migration preserves custom and empty URLs')
 print('PASS: English first install, persisted locale, Chinese migration, dynamic menus, custom URLs, separate caches')
 ''')
+
+lua.execute('''
+local d=Plugin:new{language='zh', cloud='https://example.test/screen.png'}
+d.private_board={url='https://192.168.1.2:8789/private/board.png?lang=',ca='/test/pair.pem',token='fixture'}
+d.fileExists=function() return true end
+local urls=d:endpoints()
+assert(#urls==2 and urls[1].url==d.private_board.url..'zh' and urls[2].url==d.cloud)
+assert(not d:manifestUrl(urls[1].url))
+HTTP.request=function(req)
+    assert(req.verify=='peer')
+    if req.url == urls[1].url then
+        assert(req.headers.Authorization=='Bearer fixture' and req.cafile==d.private_board.ca)
+    else
+        assert(req.headers.Authorization==nil and req.cafile~=d.private_board.ca)
+    end
+    req.sink('fixture')
+    return 1,200
+end
+assert(d:request(urls[1].url, 20)=='fixture')
+assert(d:request(urls[2].url, 20)=='fixture')
+print('PASS: paired Kindle URL uses its own trust and credential and leaves the cloud source separate')
+''')

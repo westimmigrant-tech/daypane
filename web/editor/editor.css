@@ -33,6 +33,9 @@ button:focus-visible, select:focus-visible, input:focus-visible, a:focus-visible
 button:disabled, select:disabled { opacity: .48; cursor: default; }
 .icon { min-width: 30px; min-height: 30px; padding: 2px 6px; }
 .news { display: flex; align-items: center; justify-content: space-between; margin-top: 17px; padding-top: 15px; border-top: 1px solid var(--line); }
+.local-module { margin-top: 13px; padding-top: 13px; border-top: 1px solid var(--line); }
+.local-module label { display: flex; align-items: center; gap: 9px; }
+.local-module p { font-size: .82rem; margin-top: 4px; }
 .actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 16px; }
 .primary { background: var(--accent); border-color: var(--accent); color: white; font-weight: 650; }
 .primary:hover:not(:disabled) { background: #1c3a2c; }

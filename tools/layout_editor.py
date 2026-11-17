@@ -16,6 +16,8 @@ from urllib.request import Request, build_opener
 from zoneinfo import ZoneInfo
 
 from layout import MODULES, editable_layout, load_layout, validate_override
+from private_kindle import start_private_kindle
+from private_todos import enabled as private_enabled, local_tasks, overlay as add_private_tasks, store_enabled
 from report_codex_quota import BRANCH, NoRedirect, REPORT_URL, read_token
 from render_screen import check_fonts, render
 
@@ -144,12 +146,14 @@ class Editor(BaseHTTPRequestHandler):
         super().setup()
         self.connection.settimeout(10)
 
-    def write(self, status, content, mime='application/json; charset=utf-8'):
+    def write(self, status, content, mime='application/json; charset=utf-8', headers=()):
         self.send_response(status)
         self.send_header('Content-Type', mime)
         self.send_header('Content-Length', str(len(content)))
         self.send_header('Cache-Control', 'no-store')
         self.send_header('X-Content-Type-Options', 'nosniff')
+        for name, value in headers:
+            self.send_header(name, value)
         self.send_header('Content-Security-Policy',
                          "default-src 'none'; script-src 'self'; style-src 'self'; "
                          "img-src blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'")
@@ -177,12 +181,12 @@ class Editor(BaseHTTPRequestHandler):
             state = {'layout': layout, 'revision': revision, 'connected': True}
         except (OSError, ValueError, KeyError, TypeError):
             state = {'layout': default, 'revision': None, 'connected': False}
-        self.json(200, {'default': default, 'modules': MODULES, **state})
+        self.json(200, {'default': default, 'modules': MODULES, 'privateTodos': private_enabled(), **state})
 
     def do_POST(self):
         if not self.allowed_host() or self.headers.get('Origin') != 'http://' + self.headers['Host']:
             return self.json(403, {'error': '请从编辑器页面操作。'})
-        if self.path not in ('/api/preview', '/api/save'):
+        if self.path not in ('/api/preview', '/api/save', '/api/private-todos'):
             return self.json(404, {'error': '页面不存在。'})
         if self.headers.get_content_type() != 'application/json':
             return self.json(415, {'error': '请求格式不正确。'})
@@ -191,6 +195,14 @@ class Editor(BaseHTTPRequestHandler):
             if not 0 < length <= 4096 or self.headers.get('Transfer-Encoding'):
                 raise ValueError
             payload = json.loads(self.rfile.read(length))
+            if self.path == '/api/private-todos':
+                if type(payload) is not dict or set(payload) != {'enabled'} or type(payload['enabled']) is not bool:
+                    raise ValueError
+                try:
+                    store_enabled(payload['enabled'])
+                except OSError:
+                    return self.json(500, {'error': '无法保存本机待办设置。'})
+                return self.json(200, {'enabled': payload['enabled']})
             if type(payload) is not dict or set(payload) != {'layout', 'revision'}:
                 raise ValueError
             layout = validate_override(payload.get('layout'))
@@ -199,10 +211,16 @@ class Editor(BaseHTTPRequestHandler):
                 raise ValueError
         except (ValueError, OSError):
             return self.json(400, {'error': '请至少保留一个模块，新闻条数设为 1 到 8。'})
+        counts = ()
         try:
             png = preview(layout)
             if self.path == '/api/save':
                 preview(layout, 'en')
+            elif private_enabled():
+                tasks = local_tasks()
+                png = add_private_tasks(png, tasks)
+                values = [str(len(tasks[key])) if tasks[key] is not None else '-' for key in ('daily', 'weekly')]
+                counts = (('X-DayPane-Task-Counts', ','.join(values)),)
         except OSError:
             logging.exception('DayPane failed to render preview')
             return self.json(500, {'error': '本机出图失败，请重新打开编辑器后重试。'})
@@ -211,7 +229,7 @@ class Editor(BaseHTTPRequestHandler):
                 return self.json(422, {'error': '这一版放不进 Kindle。请减少新闻条数或隐藏一个模块。'})
             return self.json(422, {'error': '这份版式无法生成图片，请调整后重试。'})
         if self.path == '/api/preview':
-            return self.write(200, png, 'image/png')
+            return self.write(200, png, 'image/png', counts)
         try:
             revision = save_layout(layout, revision)
         except RevisionChanged:
@@ -235,6 +253,10 @@ def main():
     if not ok:
         parser.exit(1, '\n'.join(details) + '\n')
     with ThreadingHTTPServer(('127.0.0.1', args.port), Editor) as server:
+        try:
+            start_private_kindle()
+        except (OSError, ValueError, KeyError):
+            logging.error('DayPane private Kindle connection unavailable')
         print(f'DayPane editor: http://127.0.0.1:{server.server_port}', flush=True)
         server.serve_forever()
 

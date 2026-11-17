@@ -40,7 +40,7 @@ local lfs = require("libs/libkoreader-lfs")
 local logger = require("logger")
 local JSON = require("json")
 
-local VERSION = "0.3.4"
+local VERSION = "0.3.5"
 local REFRESH_SEC = 30 * 60
 local MAX_IMAGE = 4 * 1024 * 1024
 local DEFAULT_HOST = ""
@@ -457,6 +457,9 @@ end
 
 function KindleDash:endpoints()
     local list = {}
+    if self.private_board then
+        table.insert(list, { url = self.private_board.url .. (self.language or "zh"), name = self:tr("本机") })
+    end
     if self.host and self.host ~= "" then
         table.insert(list, { url = "http://" .. self.host .. "/api/screen?lang=" .. (self.language or "zh"), name = self:tr("本机") })
     end
@@ -504,9 +507,12 @@ function KindleDash:request(url, limit)
         end,
     }
     if url:match("^https://") then
-        local ca = caBundlePath(function(p) return self:fileExists(p) end)
+        local paired = self.private_board
+        local private = paired and url == paired.url .. (self.language or "zh")
+        local ca = private and paired.ca or caBundlePath(function(p) return self:fileExists(p) end)
         if not ca then return nil, "CA bundle missing" end
         req.cafile, req.verify, req.protocol = ca, "peer", "tlsv1_2"
+        if private then req.headers.Authorization = "Bearer " .. paired.token end
     end
     local https = url:match("^https://") and require("ssl.https")
     local old_http, old_https = http.TIMEOUT, https and https.TIMEOUT
@@ -1120,6 +1126,19 @@ function KindleDash:init()
     self.auto_on = self:option("auto_refresh", true)
     self.host = self:loadHost()
     self.cloud = self:loadCloud()
+    local path = self:cacheDir() .. "/daypane-private"
+    local paired = io.open(path .. ".json", "rb")
+    if paired then
+        local raw = paired:read(4096)
+        paired:close()
+        local ok, config = pcall(JSON.decode, raw)
+        if ok and type(config) == "table" and type(config.url) == "string"
+            and config.url:match("^https://%d+%.%d+%.%d+%.%d+:8789/private/board%.png%?lang=$")
+            and type(config.token) == "string" and #config.token == 64 and config.token:match("^[a-f0-9]+$")
+            and self:fileExists(path .. ".pem") then
+            self.private_board = { url = config.url, token = config.token, ca = path .. ".pem" }
+        end
+    end
     self.dash_widget = nil
     self._auto_timer = nil
     self._resume_tick = nil

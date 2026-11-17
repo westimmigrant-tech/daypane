@@ -10,6 +10,8 @@
 
 手动启动时，在项目目录执行 `python3 tools/layout_editor.py`（所用 Python 需安装 Pillow）。保存使用本机额度上报器已有的 GitHub 凭据，只将模块顺序和新闻条数写入 `runtime-data` 分支的 `layout.json`。
 
+Obsidian 待办可在本机编辑器里单独开启。Mac 上的 Obsidian 需要保持打开，DayPane 通过它的命令行界面只读当天的「今日推进」和当周的「本周目标」。配对后的 Kindle 从同一网络上的 Mac 取带待办的加密图片，连不到 Mac 时会取普通云端图。
+
 ## 启动本地服务
 
 安装 Node.js 20 或更高版本。在项目目录执行：
