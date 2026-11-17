@@ -1,8 +1,8 @@
 {
   "modules": [
-    "news",
-    "ai",
     "weather",
+    "ai",
+    "news",
     "market",
     "quote"
   ],
