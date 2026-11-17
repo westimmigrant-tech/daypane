@@ -7,6 +7,7 @@ from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from io import BytesIO
 import json
+import logging
 from pathlib import Path
 import re
 import threading
@@ -200,20 +201,25 @@ class Editor(BaseHTTPRequestHandler):
             return self.json(400, {'error': '请至少保留一个模块，新闻条数设为 1 到 8。'})
         try:
             png = preview(layout)
-            if self.path == '/api/preview':
-                return self.write(200, png, 'image/png')
-            preview(layout, 'en')
+            if self.path == '/api/save':
+                preview(layout, 'en')
+        except OSError:
+            logging.exception('DayPane failed to render preview')
+            return self.json(500, {'error': '本机出图失败，请重新打开编辑器后重试。'})
+        except ValueError as error:
+            if str(error).startswith('Layout exceeds'):
+                return self.json(422, {'error': '这一版放不进 Kindle。请减少新闻条数或隐藏一个模块。'})
+            return self.json(422, {'error': '这份版式无法生成图片，请调整后重试。'})
+        if self.path == '/api/preview':
+            return self.write(200, png, 'image/png')
+        try:
             revision = save_layout(layout, revision)
         except RevisionChanged:
             return self.json(409, {'error': '版式已在另一窗口更新，请重新打开编辑器。'})
         except HTTPError as error:
             return self.json(502, {'error': f'GitHub 拒绝保存（{error.code}），请稍后重试。'})
-        except OSError:
+        except (OSError, ValueError, KeyError):
             return self.json(502, {'error': '无法保存到 GitHub，请检查网络后重试。'})
-        except ValueError as error:
-            if str(error).startswith('Layout exceeds'):
-                return self.json(422, {'error': '这一版放不进 Kindle。请减少新闻条数或隐藏一个模块。'})
-            return self.json(422, {'error': '这份版式无法生成图片，请调整后重试。'})
         self.json(200, {'revision': revision})
 
     def log_message(self, _format, *_args):
