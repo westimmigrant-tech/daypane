@@ -1,10 +1,10 @@
 {
   "modules": [
-    "weather",
     "news",
     "ai",
+    "weather",
     "market",
     "quote"
   ],
-  "newsLimit": 6
+  "newsLimit": 8
 }
