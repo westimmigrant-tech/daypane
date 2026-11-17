@@ -10,6 +10,11 @@ import sys
 import time
 import urllib.request
 
+try:
+    from layout import editable_layout, load_layout
+except ModuleNotFoundError:
+    from tools.layout import editable_layout, load_layout
+
 
 def write_json(path, value):
     Path(path).write_text(json.dumps(value, ensure_ascii=False, indent=2), encoding='utf-8')
@@ -42,10 +47,10 @@ def previous_site(base, output):
 def build(output, previous, generate, metadata):
     started = int(time.time() * 1000)
     try:
-        png, sections = generate()
+        png, sections, layout = generate()
         (output / 'screen.png').write_bytes(png)
         state = {**metadata, 'state': 'ready', 'generatedAt': int(time.time() * 1000),
-                 'sha256': hashlib.sha256(png).hexdigest(), 'sections': sections}
+                 'sha256': hashlib.sha256(png).hexdigest(), 'sections': sections, 'layout': layout}
         success = True
     except Exception as e:
         print('Generation failed:', e, file=sys.stderr)
@@ -90,8 +95,13 @@ def main():
     previous = previous_site(args.previous_url, output)
     work = output.parent / 'render-work'
     work.mkdir(exist_ok=True)
+    # Actions already checks out the runtime-data branch for the quotas file.
+    quotas_path = os.environ.get('SHAWN_QUOTAS_FILE')
+    candidate = Path(quotas_path).with_name('layout.json') if quotas_path else None
+    layout_path = candidate if candidate and candidate.exists() else None
 
     def generate(language="zh"):
+        layout = load_layout(os.environ.get('SHAWN_CONFIG', 'config.json'), layout_path)
         subprocess.run([sys.executable, 'tools/render_screen.py', '--check-fonts'], check=True, timeout=20)
         if language == 'zh':
             with (work / 'dashboard.json').open('wb') as f:
@@ -101,14 +111,17 @@ def main():
                     for k in ('weather', 'stocks', 'fx', 'news', 'mlb')}
         if not data.get('ok') or not any(v['ok'] for v in sections.values()):
             raise ValueError('all public data sources unavailable')
-        subprocess.run([sys.executable, 'tools/render_screen.py', '--data', str(work / 'dashboard.json'),
-                        '--out', str(work / 'screen.png'), '--lang', language], check=True, timeout=60)
+        command = [sys.executable, 'tools/render_screen.py', '--data', str(work / 'dashboard.json'),
+                   '--out', str(work / 'screen.png'), '--lang', language]
+        if layout_path:
+            command.extend(['--layout', str(layout_path)])
+        subprocess.run(command, check=True, timeout=60)
         from PIL import Image
         with Image.open(work / 'screen.png') as im:
             if not all(100 <= n <= 4096 for n in im.size):
                 raise ValueError('unexpected image size')
             im.verify()
-        return (work / 'screen.png').read_bytes(), sections
+        return (work / 'screen.png').read_bytes(), sections, editable_layout(layout)
 
     run_id = os.environ.get('GITHUB_RUN_ID', '')
     ok = build(output, previous, generate, {'runId': run_id,

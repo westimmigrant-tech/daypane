@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DayPane 排版编辑器</title>
+  <link rel="stylesheet" href="/editor.css">
+  <script src="/editor.js" defer></script>
+</head>
+<body>
+  <header class="page-header">
+    <div>
+      <p class="wordmark">DayPane</p>
+      <h1>排版编辑器</h1>
+      <p class="muted">选好要看的模块，再把它们排成顺手的顺序。</p>
+    </div>
+    <a href="https://westimmigrant-tech.github.io/daypane/" target="_blank" rel="noopener noreferrer">查看线上看板 ↗</a>
+  </header>
+  <main>
+    <section class="controls" aria-labelledby="modules-heading">
+      <h2 id="modules-heading">看板模块</h2>
+      <p class="muted hint">勾选显示，拖动排序，也可用上下按钮。</p>
+      <ul id="modules" aria-label="模块顺序"></ul>
+      <template id="row">
+        <li>
+          <span class="grip" draggable="true" title="拖动排序" aria-hidden="true">⠿</span>
+          <label><input type="checkbox"><span></span></label>
+          <button class="icon up" type="button">↑</button>
+          <button class="icon down" type="button">↓</button>
+        </li>
+      </template>
+      <div class="news">
+        <label for="news-limit">中文新闻条数</label>
+        <select id="news-limit" disabled>
+          <option>1</option><option>2</option><option>3</option><option>4</option>
+          <option>5</option><option>6</option><option>7</option><option>8</option>
+        </select>
+      </div>
+      <div class="actions">
+        <button id="save" type="button" class="primary" disabled>保存版式</button>
+        <button id="reset" type="button" disabled>恢复默认</button>
+      </div>
+      <p id="save-status" class="muted status" role="status">正在读取已保存的版式…</p>
+    </section>
+    <section class="preview" aria-labelledby="preview-heading">
+      <div class="preview-title">
+        <h2 id="preview-heading">Kindle 预览</h2>
+        <span class="muted">示例数据</span>
+      </div>
+      <div class="screen">
+        <img id="preview-image" alt="DayPane 的 Kindle 看板预览" width="1072" height="1448" hidden>
+        <p id="preview-status" role="status">正在生成预览…</p>
+      </div>
+      <p class="muted caption">Kindle 电量会在设备上显示。保存后，下一次云端出图会使用新版式。</p>
+    </section>
+  </main>
+</body>
+</html>

@@ -78,7 +78,6 @@ class LanguageTests(unittest.TestCase):
     def test_english_render_produces_no_chinese(self):
         # 端到端：整张英文图里不许出现中文。以前 '2 次' / '42 条 · 4 会话'
         # 就是因为单位硬编码在格式串里，标签翻了、单位没翻。
-        import tempfile
         from datetime import datetime, timedelta
         from unittest.mock import patch
         from zoneinfo import ZoneInfo
@@ -104,10 +103,13 @@ class LanguageTests(unittest.TestCase):
                 }},
             }
         }
-        with tempfile.TemporaryDirectory() as tmp, patch.object(r, 'display_now', return_value=now):
-            out = Path(tmp) / 'en.png'
-            r.render(data, str(out), 'en')
-            self.assertTrue(out.exists())
+        from io import BytesIO
+        from PIL import Image
+        with patch.object(r, 'display_now', return_value=now):
+            out = BytesIO()
+            r.render(data, out, 'en')
+            with Image.open(out) as image:
+                self.assertEqual(image.size, (1072, 1448))
             self.assertEqual(r._cjk_leak(), [], 'English render leaked Chinese onto the canvas')
             self.assertIn('Beijing', r._DRAWN)
             self.assertIn('Used 0% · Resets 11/14 01:00 ·stale', r._DRAWN)

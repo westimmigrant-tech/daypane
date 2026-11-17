@@ -1,5 +1,6 @@
 # dependencies
 node_modules/
+.venv/
 
 # local DBs (never commit live or fixture data)
 *.db

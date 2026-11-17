@@ -14,7 +14,8 @@ class SiteTests(unittest.TestCase):
     def test_success_failure_recovery_and_bounded_history(self):
         with tempfile.TemporaryDirectory() as tmp:
             out=Path(tmp)
-            self.assertTrue(m.build(out, {}, lambda:(png(0), {}), {'runId':'1'}))
+            first_layout = {'modules':['weather','news'], 'newsLimit':5}
+            self.assertTrue(m.build(out, {}, lambda:(png(0), {}, first_layout), {'runId':'1'}))
             first=json.loads((out/'status.json').read_text())
             def fail(): raise RuntimeError('timeout')
             self.assertFalse(m.build(out, first, fail, {'runId':'2'}))
@@ -22,11 +23,14 @@ class SiteTests(unittest.TestCase):
             self.assertEqual((out/'screen.png').read_bytes(), png(0))
             self.assertEqual(failed['generatedAt'], first['generatedAt'])
             self.assertEqual(failed['state'], 'failed')
+            self.assertEqual(failed['layout'], first_layout)
             self.assertEqual(len(failed['history']), 2)
             failed['history'] *= 200
-            self.assertTrue(m.build(out, failed, lambda:(png(255), {}), {'runId':'3'}))
+            updated_layout = {'modules':['news'], 'newsLimit':3}
+            self.assertTrue(m.build(out, failed, lambda:(png(255), {}, updated_layout), {'runId':'3'}))
             latest=json.loads((out/'status.json').read_text())
             self.assertEqual(latest['state'], 'ready')
+            self.assertEqual(latest['layout'], updated_layout)
             self.assertNotIn('error', latest)
             self.assertEqual(len(latest['history']),256)
             self.assertEqual((out/'screen.png').read_bytes(), png(255))

@@ -17,3 +17,16 @@ class LayoutTests(unittest.TestCase):
     def test_invalid_layout_rejected(self):
         for value in [{'modules':['weather','weather']},{'modules':['unknown']},{'width':0},{'fontScale':3},{'temperatureUnit':'K'},{'preset':'bad'},{'newsLimit':9}]:
             with self.assertRaises(ValueError):self.check(value)
+
+    def test_runtime_layout_preserves_screen_and_rejects_extra_fields(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            config = Path(tmp) / 'config.json'
+            override = Path(tmp) / 'layout.json'
+            config.write_text('{"display":{"width":900,"modules":["weather"],"newsLimit":8}}')
+            override.write_text('{"modules":["quote","news"],"newsLimit":5}')
+            layout = m.load_layout(config, override)
+            self.assertEqual(m.editable_layout(layout), {'modules':['quote','news'], 'newsLimit':5})
+            self.assertEqual(layout['width'], 900)
+            override.write_text('{"modules":["news"],"newsLimit":5,"timezone":"UTC"}')
+            with self.assertRaises(ValueError):
+                m.load_layout(config, override)

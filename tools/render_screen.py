@@ -116,6 +116,7 @@ LINUX_REG = [
     '/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc',
     '/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc',
     '/usr/share/fonts/opentype/noto/NotoSansCJKsc-Regular.otf',
+    os.path.join(_ROOT, 'fonts', 'NotoSansCJK-Regular.ttc'),
     os.path.join(_ROOT, 'fonts', 'NotoSansSC-Regular.otf'),
     os.path.join(_ROOT, 'fonts', 'NotoSansCJKsc-Regular.otf'),
 ]
@@ -124,6 +125,7 @@ LINUX_BOLD = [
     '/usr/share/fonts/truetype/noto/NotoSansCJK-Bold.ttc',
     '/usr/share/fonts/noto-cjk/NotoSansCJK-Bold.ttc',
     '/usr/share/fonts/opentype/noto/NotoSansCJKsc-Bold.otf',
+    os.path.join(_ROOT, 'fonts', 'NotoSansCJK-Bold.ttc'),
     os.path.join(_ROOT, 'fonts', 'NotoSansSC-Bold.otf'),
     os.path.join(_ROOT, 'fonts', 'NotoSansCJKsc-Bold.otf'),
 ]
@@ -142,9 +144,10 @@ def _pick_font(env_key, candidates, fallback):
 
 
 def _font_candidates():
-    if os.name == 'nt':
-        return LINUX_REG + [WIN_REG], LINUX_BOLD + [WIN_BOLD]
-    return LINUX_REG + [WIN_REG], LINUX_BOLD + [WIN_BOLD]
+    return (
+        LINUX_REG + ['/System/Library/Fonts/STHeiti Light.ttc', WIN_REG],
+        LINUX_BOLD + ['/System/Library/Fonts/STHeiti Medium.ttc', WIN_BOLD],
+    )
 
 
 _REG_CANDS, _BOLD_CANDS = _font_candidates()
@@ -355,7 +358,7 @@ def draw_news(draw, d, y):
     if not items:
         draw.text((PAD, y), tr('新闻源暂不可用'), fill=GRAY, font=fs)
         return y + F_SMALL
-    n = min(len(items), 4 if LANG == 'en' else LAYOUT['newsLimit'])
+    n = min(len(items), LAYOUT['newsLimit'], 4 if LANG == 'en' else 8)
     for i in range(n):
         line = '· ' + (items[i].get('title') or '')
         draw.text((PAD, y + i * (F_BODY + 8)), (clip(draw, line, ff, CONTENT_W) if LANG == 'en' else clip_sentence(draw, line, ff, CONTENT_W)),
@@ -566,11 +569,11 @@ def draw_footer(draw, d, y, offline=False, last_ok=None):
     return y + F_FOOT
 
 # ---------- 主流程 ----------
-def render(d, out_path=None, language="zh"):
+def render(d, out_path=None, language="zh", *, layout=None):
     global LANG
     LANG = language
     global LAYOUT, SCREEN_W, SCREEN_H, CONTENT_W
-    LAYOUT = load_layout(os.environ.get('SHAWN_CONFIG', 'config.json'))
+    LAYOUT = layout if layout is not None else load_layout(os.environ.get('SHAWN_CONFIG', 'config.json'))
     # Compose at a readable portrait ratio, then scale to the selected screen.
     SCREEN_W = 1072
     SCREEN_H = round(1072 * LAYOUT['height'] / LAYOUT['width'])
@@ -621,8 +624,9 @@ def render(d, out_path=None, language="zh"):
         if leaked:
             raise ValueError('English render contains Chinese text: %r' % (leaked[:5],))
     if out_path:
-        out.save(out_path)
-        print('saved', out_path, file=sys.stderr, flush=True)
+        out.save(out_path, 'PNG')
+        if not hasattr(out_path, 'write'):
+            print('saved', out_path, file=sys.stderr, flush=True)
     else:
         out.save(sys.stdout.buffer, 'PNG')
     return out
@@ -632,6 +636,7 @@ def main():
     ap.add_argument('--lang', choices=['en', 'zh'], default='zh')
     ap.add_argument('--out')
     ap.add_argument('--data')
+    ap.add_argument('--layout', help='Optional runtime layout JSON')
     ap.add_argument('--url', default='http://127.0.0.1:8787/api/dashboard')
     ap.add_argument('--check-fonts', action='store_true',
                     help='只校验字体能否渲染中文，失败则以非零码退出（CI 用）')
@@ -652,7 +657,8 @@ def main():
         print('[font] OK', file=sys.stderr, flush=True)
         return
     d = json.load(open(a.data, encoding='utf-8')) if a.data else fetch_dashboard(a.url)
-    render(d, a.out, a.lang)
+    layout = load_layout(os.environ.get('SHAWN_CONFIG', 'config.json'), a.layout)
+    render(d, a.out, a.lang, layout=layout)
 
 if __name__ == '__main__':
     main()
