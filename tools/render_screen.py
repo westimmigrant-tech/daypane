@@ -315,6 +315,8 @@ def draw_news(draw, d, y):
     news = d.get('news') or {}
     if LANG == 'en':
         title = tr('今日新闻')
+    elif news.get('source') == '今日热榜' and news.get('ok'):
+        title = '综合热榜 · 今日热榜'
     elif news.get('source') == '百度热搜' and news.get('ok'):
         title = '百度热搜'
     else:

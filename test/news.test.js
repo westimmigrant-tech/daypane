@@ -2,19 +2,18 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { getNews } from '../src/providers/news.js';
 
-test('hot list follows aggregate rank and removes repeated titles', async (t) => {
-  const stamp = new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 16).replace('T', ' ');
-  const ranked = ['第一条 &amp; 热搜', '第一条 &amp; 热搜', '第二条热搜',
-    ...Array.from({ length: 8 }, (_, i) => '话题' + i)];
-  const html = '数据更新于 ' + stamp + '<ol class="rows" id="list">' + ranked.map(title =>
-    '<li><a class="row-title" href="https://example.test/topic">' + title + '</a></li>').join('') + '</ol>';
+test('hot list follows the Rebang home page and ignores summaries and repeated links', async (t) => {
+  const items = [['第一条 &amp; 热搜', 1], ['同一条不同文字', 1], ['第二条热搜', 2],
+    ...Array.from({ length: 8 }, (_, i) => ['话题' + i, i + 3])];
+  const html = '<a href="https://example.test/summary">摘要</a>' + items.map(([title, id]) =>
+    '<div><a data-item-title-link="true" href="https://example.test/' + id + '">' + title + '</a></div>').join('');
   t.mock.method(globalThis, 'fetch', async url => {
-    assert.equal(new URL(url).hostname, 'tunbang.com');
+    assert.equal(url, 'https://rebang.today/?tab=top');
     return new Response(html);
   });
   const news = await getNews();
   assert.equal(news.ok, true);
-  assert.equal(news.source, '豚榜');
+  assert.equal(news.source, '今日热榜');
   assert.equal(news.items.length, 8);
   assert.deepEqual(news.items.slice(0, 2).map(item => item.title), ['第一条 & 热搜', '第二条热搜']);
 });

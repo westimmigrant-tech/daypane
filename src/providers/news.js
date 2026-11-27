@@ -1,6 +1,7 @@
 import { cached, fetchJson } from '../cache.js';
 
 const CACHE_MS = 10 * 60 * 1000;
+const REBANG = 'https://rebang.today/?tab=top';
 const AGGREGATE = 'https://tunbang.com/hot/';
 const BAIDU = 'https://top.baidu.com/board?tab=realtime';
 
@@ -37,7 +38,7 @@ function decodeHtml(text) {
   });
 }
 
-async function getChineseNews() {
+async function getTunbang() {
   try {
     const response = await fetch(AGGREGATE, { signal: AbortSignal.timeout(8000) });
     if (response.ok) {
@@ -63,6 +64,30 @@ async function getChineseNews() {
     // The official single-platform list keeps the display usable if the aggregator is unavailable.
   }
   return getBaidu();
+}
+
+async function getChineseNews() {
+  try {
+    const response = await fetch(REBANG, { signal: AbortSignal.timeout(8000) });
+    if (response.ok) {
+      const source = '今日热榜';
+      const html = await response.text();
+      const seen = new Set();
+      const items = [];
+      for (const [, link, markup] of html.matchAll(/<a\b[^>]*\bdata-item-title-link="true"[^>]*\bhref="(https:[^"]+)"[^>]*>([\s\S]*?)<\/a>/gi)) {
+        const title = decodeHtml(markup.replace(/<[^>]*>/g, '')).trim().replace(/\s+/g, ' ');
+        const url = decodeHtml(link);
+        if (!title || seen.has(url)) continue;
+        seen.add(url);
+        items.push({ title, source, url });
+        if (items.length === 8) break;
+      }
+      if (items.length) return { ok: true, items, source };
+    }
+  } catch {
+    // Keep the dashboard usable during a Rebang outage.
+  }
+  return getTunbang();
 }
 
 async function getEnglishNews() {

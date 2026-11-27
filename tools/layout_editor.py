@@ -113,7 +113,7 @@ def sample_data(now):
         clocks.append({**item, 'time': local.strftime('%H:%M'),
                        'date': local.strftime('%m/%d 周') + '一二三四五六日'[local.weekday()]})
     return {
-        'news': {**fetched, 'items': [{'title': headline} for headline in headlines]},
+        'news': {**fetched, 'source': '今日热榜', 'items': [{'title': headline} for headline in headlines]},
         'newsEn': {**fetched, 'items': [{'title': title} for title in (
             'Countries announce a clean energy partnership', 'Cities prepare for extreme weather',
             'Film festival announces competition lineup', 'Researchers release a new language model')]},
