@@ -18,6 +18,8 @@ const GTIMG = 'https://qt.gtimg.cn/q=';
 const KLINE = 'https://web.ifzq.gtimg.cn/appstock/app/fqkline/get';
 
 function toGtimgCode(s) {
+  if (s.quoteCode) return s.quoteCode;
+  if (s.mkt === 'HK') return 'hk' + String(s.sym).toUpperCase();
   if (s.mkt === 'US') return 'us' + String(s.sym).toUpperCase();
   // A-share: "600519.SS" / "399001.SZ" -> sh600519 / sz399001
   const raw = String(s.sym).toUpperCase();
@@ -30,6 +32,7 @@ function toGtimgCode(s) {
 // exchange suffix. NASDAQ -> .OQ, NYSE -> .N, NYSE Arca (many ETFs) -> .AM.
 // We try them in order until one yields a usable series.
 function toKlineCode(s) {
+  if (s.quoteCode || s.mkt === 'HK') return [toGtimgCode(s)];
   if (s.mkt === 'US') {
     const sym = String(s.sym).toUpperCase();
     return [`us${sym}.OQ`, `us${sym}.N`, `us${sym}.AM`];
@@ -41,7 +44,7 @@ function toKlineCode(s) {
 }
 
 function currencyFor(mkt) {
-  return mkt === 'US' ? 'USD' : 'CNY';
+  return mkt === 'US' ? 'USD' : mkt === 'HK' ? 'HKD' : 'CNY';
 }
 
 async function fetchBatch(codes) {
@@ -138,7 +141,7 @@ async function buildStocks() {
     byCode.set(m[1].toLowerCase(), m[2]);
   }
 
-  const sparks = await getSparks(list);
+  const sparks = getConfig().mode === 'cloud' ? {} : await getSparks(list);
 
   const items = list.map((s, i) => {
     const code = codes[i].toLowerCase();
@@ -150,7 +153,7 @@ async function buildStocks() {
     const p = raw.split('~');
     const price = Number(p[3]);
     const prev = Number(p[4]);
-    if (!Number.isFinite(price)) {
+    if (!Number.isFinite(price) || price <= 0) {
       return { sym: s.sym, ok: false, error: 'bad data', label, mkt: s.mkt };
     }
     // Compute change from price & previous close rather than relying on a
@@ -183,5 +186,5 @@ async function buildStocks() {
     return item;
   });
 
-  return { ok: true, items };
+  return { ok: items.some(item => item.ok), items };
 }

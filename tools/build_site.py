@@ -111,6 +111,12 @@ def main():
                     for k in ('weather', 'stocks', 'fx', 'news', 'mlb')}
         if not data.get('ok') or not any(v['ok'] for v in sections.values()):
             raise ValueError('all public data sources unavailable')
+        news = data.get('news' if language == 'zh' else 'newsEn', {})
+        sections['news'] = {'ok': bool(news.get('ok')), 'fetchedAt': news.get('updatedAt') or news.get('fetchedAt'),
+                            'source': news.get('source')}
+        quotas = data.get('quotas') or {}
+        sections['quotas'] = {'ok': bool((quotas.get('codex') or {}).get('ok')),
+                              'fetchedAt': quotas.get('fetchedAt')}
         command = [sys.executable, 'tools/render_screen.py', '--data', str(work / 'dashboard.json'),
                    '--out', str(work / 'screen.png'), '--lang', language]
         if layout_path:

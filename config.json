@@ -21,6 +21,31 @@
       "mkt": "A"
     },
     {
+      "sym": "399001.SZ",
+      "name": "深证成指",
+      "nameEn": "SZ Component",
+      "mkt": "A"
+    },
+    {
+      "sym": "000300.SS",
+      "name": "沪深300",
+      "nameEn": "CSI 300",
+      "mkt": "A"
+    },
+    {
+      "sym": "HSI",
+      "name": "恒生指数",
+      "nameEn": "Hang Seng",
+      "mkt": "HK"
+    },
+    {
+      "sym": "DJI",
+      "name": "道琼斯",
+      "nameEn": "Dow Jones",
+      "mkt": "US",
+      "quoteCode": "us.DJI"
+    },
+    {
       "sym": "SPY",
       "name": "标普500ETF",
       "mkt": "US"

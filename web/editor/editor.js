@@ -1,6 +1,6 @@
 /* global document, fetch, URL, AbortController, clearTimeout, setTimeout */
 const labels = {
-  news: '今日新闻', ai: 'AI 用量', weather: '北京天气', market: '市场',
+  news: '综合热榜', ai: 'AI 用量', weather: '北京天气', market: '市场',
   clocks: '世界时钟', mlb: 'MLB 道奇 / 教士', quote: '今日一句',
 };
 const $ = id => document.getElementById(id);
@@ -11,8 +11,6 @@ const limit = $('news-limit');
 const img = $('preview-image');
 const notice = $('preview-status');
 const status = $('save-status');
-const todos = $('private-todos');
-const todoStatus = $('private-status');
 let state, order, active, saved, revision, ready, saving, dragged;
 let timer, pending, previewUrl;
 
@@ -98,7 +96,7 @@ function showRows() {
 async function post(path, layout, signal) {
   const res = await fetch('/api/' + path, {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, signal,
-    body: JSON.stringify(path === 'private-todos' ? { enabled: layout } : { layout, revision }),
+    body: JSON.stringify({ layout, revision }),
   });
   if (!res.ok) throw new Error((await res.json()).error);
   return res;
@@ -116,12 +114,6 @@ async function refreshPreview() {
     img.src = previewUrl;
     img.hidden = false;
     notice.hidden = true;
-    const counts = res.headers.get('X-DayPane-Task-Counts');
-    if (counts) {
-      const [daily, weekly] = counts.split(',');
-      const label = count => count === '-' ? '暂无法读取' : count + ' 条';
-      todoStatus.textContent = '今日 ' + label(daily) + ' · 本周 ' + label(weekly);
-    }
     ready = true;
   } catch (error) {
     if (pending !== request || request.signal.aborted) return;
@@ -153,20 +145,6 @@ function apply(layout) {
 }
 
 limit.addEventListener('change', changed);
-todos.addEventListener('change', async () => {
-  todos.disabled = true;
-  try {
-    state.privateTodos = (await (await post('private-todos', todos.checked)).json()).enabled;
-    $('preview-mode').textContent = state.privateTodos ? '待办为真实数据，其余为示例' : '示例数据';
-    todoStatus.textContent = state.privateTodos ? '待办已启用。' : '待办已隐藏。';
-    changed();
-  } catch (error) {
-    todos.checked = state.privateTodos;
-    todoStatus.textContent = error.message;
-  } finally {
-    todos.disabled = false;
-  }
-});
 reset.addEventListener('click', () => apply(state.default));
 save.addEventListener('click', async () => {
   saving = true;
@@ -194,9 +172,6 @@ async function load() {
     state = await response.json();
     saved = state.layout;
     revision = state.revision;
-    todos.checked = state.privateTodos;
-    todos.disabled = false;
-    $('preview-mode').textContent = state.privateTodos ? '待办为真实数据，其余为示例' : '示例数据';
     apply(saved);
   } catch {
     notice.textContent = '编辑器暂不可用，请重新打开网页。';

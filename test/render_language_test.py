@@ -113,7 +113,7 @@ class LanguageTests(unittest.TestCase):
             self.assertEqual(r._cjk_leak(), [], 'English render leaked Chinese onto the canvas')
             self.assertIn('Beijing', r._DRAWN)
             self.assertIn('Used 0% · Resets 11/14 01:00 ·stale', r._DRAWN)
-            self.assertIn('Update pending', r._DRAWN)
+            self.assertTrue(any('Reset time passed' in line for line in r._DRAWN))
 
     def test_legacy_quota_snapshot_renders_consistently(self):
         # 云端 runtime-data 分支里可能还是旧格式（没有 context 字段）——

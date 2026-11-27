@@ -132,12 +132,13 @@ def publish(report):
         if isinstance(old, dict) and type(old.get("ts")) is int:
             age_ms = report["ts"] - old["ts"]
             if age_ms <= 0 or (age_ms < 10 * 60 * 1000 and old.get("quotas") == report["quotas"]):
-                return
+                return False
     body = {"message": "Update Codex quota summary", "branch": BRANCH,
             "content": base64.b64encode((json.dumps(report, indent=2) + "\n").encode()).decode()}
     if previous:
         body["sha"] = previous["sha"]
     request(REPORT_URL, body)
+    return True
 
 
 def main():
@@ -154,7 +155,8 @@ def main():
         print(json.dumps(report, indent=2))
         return 0
     try:
-        publish(report)
+        if publish(report):
+            print(time.strftime('%Y-%m-%d %H:%M:%S %z') + ' DayPane: quota snapshot published.', file=sys.stderr)
     except urllib.error.HTTPError as e:
         print(f"DayPane: GitHub quota upload failed (HTTP {e.code}).", file=sys.stderr)
         return 1
