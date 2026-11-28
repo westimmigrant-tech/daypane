@@ -1,12 +1,12 @@
 {
-  "ts": 1795850510291,
+  "ts": 1795850815542,
   "quotas": {
     "codex": {
       "ok": true,
       "windows": {
         "fiveHour": {
           "usedPercent": 0,
-          "resetsAt": 1795868510
+          "resetsAt": 1795868814
         },
         "weekly": {
           "usedPercent": 12,
